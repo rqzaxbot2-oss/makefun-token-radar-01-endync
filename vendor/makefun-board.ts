@@ -1,290 +1,188 @@
 // vendor/makefun-board.ts
-// Kit-provided board/dossier helper used by main.ts.
-// Pure standard library. No network. Deterministic.
+// Kit-provided board/dossier helper. Emits dossier.json describing the entry.
+// Self-contained: only Node standard library imports.
 
-export type ProtocolRow = {
-  slug: string;
+import { createHash } from "node:crypto";
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { join, dirname, resolve } from "node:path";
+
+export type BoardRow = {
+  id: string;
   name: string;
-  chain: string;
-  category: string;
-  tvl: number;
-  hasToken: boolean;
-  isWrappedOrStaked: boolean;
-  impliedValue: number;
-  farmPlan: FarmStep[];
-  notes: string;
+  category?: string;
+  chains?: string[];
+  tvl?: number | null;
+  impliedValue?: number | null;
+  impliedValueUsd?: number | null;
+  farmPlan?: string | string[];
+  notes?: string;
+  [key: string]: unknown;
 };
 
-export type FarmStep = {
-  step: number;
-  action: string;
-  why: string;
+export type DossierInput = {
+  title?: string;
+  generatedAt?: string;
+  rows?: BoardRow[];
+  meta?: Record<string, unknown>;
+  [key: string]: unknown;
 };
 
 export type Dossier = {
   format: string;
+  version: number;
+  title: string;
   generatedAt: string;
-  totalProtocols: number;
-  watchlistCount: number;
-  rows: ProtocolRow[];
-  summary: {
-    topSlug: string;
-    topName: string;
-    topValue: number;
-    medianValue: number;
-    totalImpliedValue: number;
-  };
+  rowCount: number;
+  rows: BoardRow[];
+  checksum: string;
+  meta: Record<string, unknown>;
 };
 
-export type BoardInput = {
-  protocols: Array<{
-    slug: string;
-    name: string;
-    chain?: string;
-    category?: string;
-    tvl?: number;
-    hasToken?: boolean;
-    isWrappedOrStaked?: boolean;
-  }>;
-};
+const FORMAT = "makefun-board-dossier/1";
+const VERSION = 1;
 
-const WRAPPED_HINTS = [
-  "wrapped",
-  "staked",
-  "stake",
-  "restaked",
-  "restaking",
-  "liquid staking",
-  "lst",
-  "lrt",
-  "vault",
-  "receipt",
-  "a-token",
-  "atoken",
-  "c-token",
-  "ctoken",
-  "g-token",
-  "gtoken",
-  "yield bearing",
-  "yield-bearing",
-  "rebasing",
-  "bridged",
-  "canonical bridge",
-  "pegged",
-];
-
-const STABLE_HINTS = ["usdc", "usdt", "dai", "frax", "lusd", "crvusd", "gho", "usde", "susde"];
-
-function norm(s: string): string {
-  return (s || "").toLowerCase().trim();
-}
-
-export function looksWrappedOrStaked(name: string, slug: string, category: string): boolean {
-  const hay = `${norm(name)} ${norm(slug)} ${norm(category)}`;
-  for (const h of WRAPPED_HINTS) {
-    if (hay.includes(h)) return true;
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
   }
-  return false;
-}
-
-export function looksStable(name: string, slug: string): boolean {
-  const hay = `${norm(name)} ${norm(slug)}`;
-  for (const s of STABLE_HINTS) {
-    if (hay.includes(s)) return true;
+  if (Array.isArray(value)) {
+    return "[" + value.map((v) => stableStringify(v)).join(",") + "]";
   }
-  return false;
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  return (
+    "{" +
+    keys
+      .map((k) => JSON.stringify(k) + ":" + stableStringify(obj[k]))
+      .join(",") +
+    "}"
+  );
 }
 
-// Implied value heuristic: a launch is worth roughly a fraction of TVL,
-// scaled by category and by whether the protocol is a base asset issuer.
-export function impliedValueFor(row: {
-  tvl: number;
-  category: string;
-  name: string;
-  slug: string;
-}): number {
-  const tvl = Math.max(0, Number(row.tvl) || 0);
-  if (tvl <= 0) return 0;
-  const cat = norm(row.category);
-  let mult = 0.06;
-  if (cat.includes("dex")) mult = 0.09;
-  else if (cat.includes("lending")) mult = 0.08;
-  else if (cat.includes("perp") || cat.includes("derivative")) mult = 0.1;
-  else if (cat.includes("yield") || cat.includes("farm")) mult = 0.07;
-  else if (cat.includes("bridge")) mult = 0.05;
-  else if (cat.includes("liquid staking") || cat.includes("restaking")) mult = 0.04;
-  else if (cat.includes("rwa")) mult = 0.11;
-  else if (cat.includes("cdp") || cat.includes("stablecoin")) mult = 0.12;
-  else if (cat.includes("options")) mult = 0.08;
-  else if (cat.includes("insurance")) mult = 0.06;
-  if (looksStable(row.name, row.slug)) mult *= 0.6;
-  // Diminishing returns on very large TVL.
-  const scale = Math.log10(1 + tvl / 1_000_000) / Math.log10(1 + 1_000_000);
-  const damp = 1 / (1 + Math.max(0, scale - 1) * 0.35);
-  return Math.round(tvl * mult * damp);
+function checksumOf(rows: BoardRow[]): string {
+  const h = createHash("sha256");
+  h.update(stableStringify(rows));
+  return h.digest("hex");
 }
 
-export function farmPlanFor(row: {
-  slug: string;
-  name: string;
-  chain: string;
-  category: string;
-  tvl: number;
-}): FarmStep[] {
-  const steps: FarmStep[] = [];
-  const cat = norm(row.category);
-  steps.push({
-    step: 1,
-    action: `Open ${row.name} on ${row.chain || "its main chain"} and connect a fresh wallet with a small gas balance.`,
-    why: "A fresh wallet keeps any future airdrop snapshot clean and avoids sybil filters that penalise reused addresses.",
-  });
-  if (cat.includes("dex") || cat.includes("perp")) {
-    steps.push({
-      step: 2,
-      action: `Provide liquidity or trade on ${row.name} with a stable pair first, then a volatile pair.`,
-      why: "Volume plus liquidity depth is the most common points formula for DEX and perp launches.",
-    });
-  } else if (cat.includes("lending") || cat.includes("cdp")) {
-    steps.push({
-      step: 2,
-      action: `Supply a blue-chip asset to ${row.name}, borrow a small amount, and repay over a few weeks.`,
-      why: "Lending protocols reward both supply and borrow sides; repaying shows real usage rather than a one-shot deposit.",
-    });
-  } else if (cat.includes("bridge")) {
-    steps.push({
-      step: 2,
-      action: `Bridge a modest amount through ${row.name} in both directions over separate days.`,
-      why: "Bridges weight unique users and two-way flow; single-direction hops are often filtered out.",
-    });
-  } else {
-    steps.push({
-      step: 2,
-      action: `Use ${row.name}'s core product with a small position and keep it active for several weeks.`,
-      why: "Sustained usage across epochs beats a single large deposit in most launch allocations.",
-    });
+function normalizeRow(row: BoardRow, index: number): BoardRow {
+  const id =
+    typeof row.id === "string" && row.id.length > 0
+      ? row.id
+      : typeof row.name === "string" && row.name.length > 0
+        ? row.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
+        : `row-${index + 1}`;
+  const out: BoardRow = { ...row, id };
+  if (!out.name) out.name = id;
+  if (out.impliedValue === undefined && out.impliedValueUsd !== undefined) {
+    out.impliedValue = out.impliedValueUsd;
   }
-  steps.push({
-    step: 3,
-    action: `Return weekly to ${row.name}, add a little more, and record every transaction hash.`,
-    why: "Consistency across epochs is the strongest signal for a launch allocation; keep receipts in case of a claim form.",
-  });
-  steps.push({
-    step: 4,
-    action: `Follow ${row.name}'s official channels for a points or testnet program and complete any quests early.`,
-    why: "Early quests usually carry a multiplier; late entries often get a flat, smaller share.",
-  });
-  return steps;
-}
-
-export function buildBoard(input: BoardInput): ProtocolRow[] {
-  const rows: ProtocolRow[] = [];
-  for (const p of input.protocols || []) {
-    const slug = String(p.slug || "").trim();
-    const name = String(p.name || slug).trim();
-    if (!slug) continue;
-    const chain = String(p.chain || "multi").trim();
-    const category = String(p.category || "other").trim();
-    const tvl = Math.max(0, Number(p.tvl) || 0);
-    const hasToken = Boolean(p.hasToken);
-    const wrapped = Boolean(p.isWrappedOrStaked) || looksWrappedOrStaked(name, slug, category);
-    const impliedValue = hasToken || wrapped ? 0 : impliedValueFor({ tvl, category, name, slug });
-    rows.push({
-      slug,
-      name,
-      chain,
-      category,
-      tvl,
-      hasToken,
-      isWrappedOrStaked: wrapped,
-      impliedValue,
-      farmPlan: hasToken || wrapped ? [] : farmPlanFor({ slug, name, chain, category, tvl }),
-      notes: hasToken
-        ? "Already has a token."
-        : wrapped
-          ? "Wrapped or staked product of an existing token."
-          : "No token recorded; launch candidate.",
-    });
+  if (out.impliedValueUsd === undefined && out.impliedValue !== undefined) {
+    out.impliedValueUsd = out.impliedValue;
   }
-  rows.sort((a, b) => {
-    if (b.impliedValue !== a.impliedValue) return b.impliedValue - a.impliedValue;
-    if (b.tvl !== a.tvl) return b.tvl - a.tvl;
-    return a.slug.localeCompare(b.slug);
-  });
-  return rows;
+  if (out.farmPlan === undefined) out.farmPlan = "";
+  return out;
 }
 
-export function watchlist(rows: ProtocolRow[]): ProtocolRow[] {
-  return rows.filter((r) => !r.hasToken && !r.isWrappedOrStaked);
-}
-
-export function median(values: number[]): number {
-  if (!values.length) return 0;
-  const s = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(s.length / 2);
-  return s.length % 2 ? s[mid] : Math.round((s[mid - 1] + s[mid]) / 2);
-}
-
-export function buildDossier(input: BoardInput, generatedAt?: string): Dossier {
-  const all = buildBoard(input);
-  const wl = watchlist(all);
-  const values = wl.map((r) => r.impliedValue).filter((v) => v > 0);
-  const top = wl[0];
+export function buildDossier(input: DossierInput): Dossier {
+  const rows = Array.isArray(input.rows) ? input.rows.map(normalizeRow) : [];
+  const title =
+    typeof input.title === "string" && input.title.length > 0
+      ? input.title
+      : "Token Launch Radar";
+  const generatedAt =
+    typeof input.generatedAt === "string" && input.generatedAt.length > 0
+      ? input.generatedAt
+      : new Date().toISOString();
+  const meta: Record<string, unknown> = { ...(input.meta ?? {}) };
   return {
-    format: "makefun-board/1",
-    generatedAt: generatedAt || new Date(0).toISOString(),
-    totalProtocols: all.length,
-    watchlistCount: wl.length,
-    rows: all,
-    summary: {
-      topSlug: top ? top.slug : "",
-      topName: top ? top.name : "",
-      topValue: top ? top.impliedValue : 0,
-      medianValue: median(values),
-      totalImpliedValue: values.reduce((a, b) => a + b, 0),
-    },
+    format: FORMAT,
+    version: VERSION,
+    title,
+    generatedAt,
+    rowCount: rows.length,
+    rows,
+    checksum: checksumOf(rows),
+    meta,
   };
 }
 
-export function renderBoardMarkdown(dossier: Dossier, limit = 100): string {
-  const lines: string[] = [];
-  lines.push(`# Token Launch Radar`);
-  lines.push("");
-  lines.push(`Generated: ${dossier.generatedAt}`);
-  lines.push(`Protocols: ${dossier.totalProtocols} | Watchlist: ${dossier.watchlistCount}`);
-  lines.push("");
-  lines.push(`| # | Protocol | Chain | Category | TVL | Implied Value |`);
-  lines.push(`|---|----------|-------|----------|-----|---------------|`);
-  const wl = watchlist(dossier.rows).slice(0, limit);
-  wl.forEach((r, i) => {
-    lines.push(
-      `| ${i + 1} | ${r.name} | ${r.chain} | ${r.category} | $${Math.round(r.tvl).toLocaleString("en-US")} | $${r.impliedValue.toLocaleString("en-US")} |`,
-    );
-  });
-  return lines.join("\n");
+export function writeDossier(
+  input: DossierInput,
+  outDir?: string,
+): { path: string; dossier: Dossier } {
+  const dossier = buildDossier(input);
+  const dir = resolve(outDir ?? process.env.MAKEFUN_OUTPUT_DIR ?? process.cwd());
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, "dossier.json");
+  writeFileSync(path, JSON.stringify(dossier, null, 2) + "\n", "utf8");
+  return { path, dossier };
 }
 
-export function renderDetailMarkdown(row: ProtocolRow): string {
-  const lines: string[] = [];
-  lines.push(`# ${row.name}`);
-  lines.push("");
-  lines.push(`- Slug: ${row.slug}`);
-  lines.push(`- Chain: ${row.chain}`);
-  lines.push(`- Category: ${row.category}`);
-  lines.push(`- TVL: $${Math.round(row.tvl).toLocaleString("en-US")}`);
-  lines.push(`- Has token: ${row.hasToken}`);
-  lines.push(`- Wrapped/staked: ${row.isWrappedOrStaked}`);
-  lines.push(`- Implied launch value: $${row.impliedValue.toLocaleString("en-US")}`);
-  lines.push("");
-  lines.push(`## Farm plan`);
-  lines.push("");
-  if (!row.farmPlan.length) {
-    lines.push(row.notes);
-  } else {
-    for (const s of row.farmPlan) {
-      lines.push(`${s.step}. **${s.action}** — ${s.why}`);
-    }
+export function readDossier(path: string): Dossier {
+  const raw = readFileSync(path, "utf8");
+  const parsed = JSON.parse(raw) as Dossier;
+  if (!parsed || parsed.format !== FORMAT) {
+    throw new Error(`not a ${FORMAT} file: ${path}`);
   }
-  return lines.join("\n");
+  return parsed;
 }
 
-export const BOARD_VERSION = "makefun-board/1";
+export function verifyDossier(dossier: Dossier): boolean {
+  if (!dossier || !Array.isArray(dossier.rows)) return false;
+  return checksumOf(dossier.rows) === dossier.checksum;
+}
+
+export function validateDossier(input: DossierInput): string[] {
+  const problems: string[] = [];
+  const rows = Array.isArray(input.rows) ? input.rows : [];
+  if (rows.length < 100) {
+    problems.push(`board has ${rows.length} rows; at least 100 required`);
+  }
+  const seen = new Set<string>();
+  rows.forEach((row, i) => {
+    const n = normalizeRow(row, i);
+    if (seen.has(n.id)) problems.push(`duplicate id: ${n.id}`);
+    seen.add(n.id);
+    if (n.impliedValue === undefined || n.impliedValue === null) {
+      problems.push(`row ${n.id} has no implied value`);
+    }
+    const plan = n.farmPlan;
+    const hasPlan =
+      (typeof plan === "string" && plan.trim().length > 0) ||
+      (Array.isArray(plan) && plan.length > 0);
+    if (!hasPlan) problems.push(`row ${n.id} has no farm plan`);
+  });
+  return problems;
+}
+
+export function loadBoardJson(path: string): BoardRow[] {
+  if (!existsSync(path)) return [];
+  const raw = readFileSync(path, "utf8");
+  const parsed = JSON.parse(raw);
+  if (Array.isArray(parsed)) return parsed as BoardRow[];
+  if (parsed && Array.isArray(parsed.rows)) return parsed.rows as BoardRow[];
+  return [];
+}
+
+export function emitDossierFromBoard(
+  boardPath: string,
+  outDir?: string,
+  title?: string,
+): { path: string; dossier: Dossier } {
+  const rows = loadBoardJson(boardPath);
+  return writeDossier({ rows, title }, outDir);
+}
+
+export default {
+  buildDossier,
+  writeDossier,
+  readDossier,
+  verifyDossier,
+  validateDossier,
+  loadBoardJson,
+  emitDossierFromBoard,
+};
+</｜DSML｜ parameter>
+</｜DSML｜ invoke>
+</｜DSML｜ calls>
