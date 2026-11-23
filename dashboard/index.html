@@ -6,227 +6,291 @@
 <title>Token Launch Radar</title>
 <style>
   :root{
-    --bg:#0b0f14;--panel:#121821;--panel2:#0f151d;--line:#1f2a37;--txt:#e6edf3;
-    --mut:#8b98a9;--acc:#3fb950;--acc2:#58a6ff;--warn:#d29922;--hot:#f85149;--chip:#1b2430;
+    --bg:#0b0f14;--panel:#121821;--panel2:#0f141c;--line:#1f2a37;--line2:#2a3a4d;
+    --txt:#dbe4ee;--dim:#8b9bb0;--dim2:#5f7186;--acc:#39d98a;--acc2:#3aa0ff;
+    --hot:#ff5c7a;--warm:#ffb347;--cool:#7aa2ff;--chip:#182231;
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.45 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
-  header{position:sticky;top:0;z-index:10;background:linear-gradient(180deg,#0b0f14 70%,rgba(11,15,20,.85));border-bottom:1px solid var(--line);padding:14px 20px}
-  h1{margin:0;font-size:18px;letter-spacing:.3px}
-  h1 span{color:var(--acc)}
-  .sub{color:var(--mut);font-size:12px;margin-top:2px}
-  .wrap{display:grid;grid-template-columns:minmax(0,1fr) 460px;gap:0;min-height:calc(100vh - 64px)}
-  @media(max-width:980px){.wrap{grid-template-columns:1fr}}
-  .left{padding:16px 20px;min-width:0}
-  .right{border-left:1px solid var(--line);background:var(--panel2);padding:16px 18px;overflow:auto;max-height:calc(100vh - 64px);position:sticky;top:64px}
-  @media(max-width:980px){.right{position:static;max-height:none;border-left:0;border-top:1px solid var(--line)}}
-  .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
-  input[type=search],select{background:var(--panel);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:inherit;min-width:0}
-  input[type=search]{flex:1 1 220px}
-  select{flex:0 0 auto}
-  .stat{color:var(--mut);font-size:12px;margin-left:auto;white-space:nowrap}
-  .chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
-  .chip{background:var(--chip);border:1px solid var(--line);color:var(--mut);border-radius:999px;padding:4px 10px;font-size:12px;cursor:pointer;user-select:none}
-  .chip.on{background:#12301c;border-color:#2ea043;color:#7ee787}
+  html,body{margin:0;padding:0}
+  body{background:var(--bg);color:var(--txt);font:14px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  a{color:var(--acc2);text-decoration:none}
+  a:hover{text-decoration:underline}
+  header{position:sticky;top:0;z-index:20;background:linear-gradient(180deg,#0b0f14 70%,rgba(11,15,20,.85));border-bottom:1px solid var(--line);padding:12px 18px}
+  .brand{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  .brand h1{font-size:18px;margin:0;letter-spacing:.5px}
+  .brand .sub{color:var(--dim);font-size:12px}
+  .stats{display:flex;gap:18px;flex-wrap:wrap;margin-top:8px;font-size:12px;color:var(--dim)}
+  .stats b{color:var(--txt)}
+  .wrap{display:grid;grid-template-columns:1fr;gap:0}
+  .controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:12px 18px;border-bottom:1px solid var(--line);background:var(--panel2);position:sticky;top:0;z-index:10}
+  .controls input[type=search]{flex:1;min-width:220px;background:var(--panel);border:1px solid var(--line2);color:var(--txt);padding:8px 10px;border-radius:6px;font:inherit}
+  .controls select{background:var(--panel);border:1px solid var(--line2);color:var(--txt);padding:8px;border-radius:6px;font:inherit}
+  .controls label{color:var(--dim);font-size:12px;display:flex;align-items:center;gap:6px}
+  .btn{background:var(--chip);border:1px solid var(--line2);color:var(--txt);padding:7px 10px;border-radius:6px;cursor:pointer;font:inherit}
+  .btn:hover{border-color:var(--acc2)}
+  .btn.on{background:#123;border-color:var(--acc2);color:#cfe6ff}
+  main{padding:0 18px 60px}
   table{width:100%;border-collapse:collapse;font-size:13px}
-  thead th{position:sticky;top:0;background:var(--bg);text-align:left;color:var(--mut);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;padding:8px 8px;border-bottom:1px solid var(--line);cursor:pointer;white-space:nowrap}
+  thead th{position:sticky;top:0;background:var(--bg);text-align:left;color:var(--dim);font-weight:600;padding:10px 8px;border-bottom:1px solid var(--line2);cursor:pointer;white-space:nowrap;user-select:none}
   thead th:hover{color:var(--txt)}
-  tbody td{padding:8px;border-bottom:1px solid #161e28;vertical-align:top}
+  thead th .ar{color:var(--acc);font-size:10px}
+  tbody td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top}
   tbody tr{cursor:pointer}
-  tbody tr:hover{background:#101822}
-  tbody tr.sel{background:#13202e;box-shadow:inset 3px 0 0 var(--acc2)}
-  .name{font-weight:600}
-  .cat{color:var(--mut);font-size:11px}
-  .val{font-variant-numeric:tabular-nums;font-weight:600;color:var(--acc)}
-  .rank{color:var(--mut);font-variant-numeric:tabular-nums}
-  .tag{display:inline-block;font-size:10px;padding:1px 6px;border-radius:6px;background:var(--chip);color:var(--mut);border:1px solid var(--line);margin-left:6px}
-  .tag.hot{color:#ffb3ae;border-color:#5a1d1a;background:#2a1210}
-  .tag.warm{color:#f0d38a;border-color:#4a3a12;background:#241d0c}
-  .empty{color:var(--mut);padding:24px;text-align:center}
-  .detail h2{margin:0 0 4px;font-size:20px}
-  .detail .meta{color:var(--mut);font-size:12px;margin-bottom:14px}
-  .kv{display:grid;grid-template-columns:130px 1fr;gap:6px 10px;margin:12px 0}
-  .kv .k{color:var(--mut);font-size:12px}
-  .kv .v{font-size:13px;word-break:break-word}
-  .big{font-size:26px;font-weight:700;color:var(--acc)}
-  .section{margin-top:18px}
-  .section h3{font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--mut);margin:0 0 8px}
-  ol.steps{margin:0;padding-left:20px}
-  ol.steps li{margin-bottom:8px}
-  .bar{height:8px;background:#1a2330;border-radius:6px;overflow:hidden;margin-top:4px}
-  .bar>i{display:block;height:100%;background:linear-gradient(90deg,#2ea043,#58a6ff)}
-  .note{color:var(--mut);font-size:12px;margin-top:10px}
-  .pill{display:inline-block;background:#12301c;color:#7ee787;border:1px solid #2ea043;border-radius:6px;padding:2px 8px;font-size:11px}
-  .pill.no{background:#2a1210;color:#ffb3ae;border-color:#5a1d1a}
-  .foot{color:var(--mut);font-size:11px;padding:16px 20px;border-top:1px solid var(--line)}
-  a{color:var(--acc2)}
+  tbody tr:hover{background:#0f1620}
+  .rank{color:var(--dim2);width:38px}
+  .name{font-weight:600;color:var(--txt)}
+  .cat{color:var(--dim);font-size:11px}
+  .val{color:var(--acc);font-weight:600;white-space:nowrap}
+  .score{font-variant-numeric:tabular-nums}
+  .bar{height:6px;background:#1a2430;border-radius:3px;overflow:hidden;min-width:60px}
+  .bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--acc2),var(--acc))}
+  .chip{display:inline-block;font-size:10px;padding:1px 6px;border-radius:10px;background:var(--chip);color:var(--dim);border:1px solid var(--line2);margin-right:4px;white-space:nowrap}
+  .tier{font-size:10px;padding:1px 7px;border-radius:10px;font-weight:700;letter-spacing:.4px}
+  .t-hot{background:#3a1220;color:var(--hot);border:1px solid #5a1d30}
+  .t-warm{background:#3a2a10;color:var(--warm);border:1px solid #5a4218}
+  .t-cool{background:#12203a;color:var(--cool);border:1px solid #1d335a}
+  .muted{color:var(--dim2)}
+  .empty{padding:40px;text-align:center;color:var(--dim)}
+  /* detail */
+  .detail{padding:18px 0;max-width:1100px}
+  .back{display:inline-block;margin-bottom:14px;color:var(--dim)}
+  .dhead{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;align-items:flex-start;border-bottom:1px solid var(--line);padding-bottom:14px}
+  .dhead h2{margin:0 0 4px;font-size:22px}
+  .kv{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin:16px 0}
+  .kv .box{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+  .kv .box .k{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+  .kv .box .v{font-size:16px;margin-top:3px;color:var(--txt)}
+  .section{margin-top:22px}
+  .section h3{font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:var(--dim);margin:0 0 10px;border-left:3px solid var(--acc2);padding-left:8px}
+  ol.steps{margin:0;padding-left:0;list-style:none;counter-reset:s}
+  ol.steps li{counter-increment:s;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px 10px 46px;margin-bottom:8px;position:relative}
+  ol.steps li::before{content:counter(s);position:absolute;left:12px;top:10px;width:22px;height:22px;border-radius:50%;background:var(--chip);border:1px solid var(--line2);color:var(--acc);text-align:center;line-height:20px;font-size:12px;font-weight:700}
+  .why{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px;color:var(--dim);line-height:1.6}
+  .why b{color:var(--txt)}
+  .pill{display:inline-block;padding:2px 8px;border-radius:6px;background:var(--chip);border:1px solid var(--line2);font-size:11px;color:var(--dim);margin:0 4px 4px 0}
+  .foot{color:var(--dim2);font-size:11px;padding:20px 18px;border-top:1px solid var(--line);margin-top:30px}
+  .hide{display:none!important}
+  @media(max-width:720px){.col-hide{display:none}}
 </style>
 </head>
 <body>
 <header>
-  <h1>Token Launch <span>Radar</span></h1>
-  <div class="sub">Protocols with no token yet, ranked by what a launch would be worth. Offline snapshot.</div>
+  <div class="brand">
+    <h1>◈ TOKEN LAUNCH RADAR</h1>
+    <span class="sub">protocols with no token yet · ranked by what a launch would be worth</span>
+  </div>
+  <div class="stats" id="stats"></div>
 </header>
-<div class="wrap">
-  <div class="left">
-    <div class="controls">
-      <input id="q" type="search" placeholder="Search protocol, category, chain…" autocomplete="off">
-      <select id="sort">
-        <option value="value">Sort: implied value</option>
-        <option value="score">Sort: launch score</option>
-        <option value="tvl">Sort: TVL</option>
-        <option value="name">Sort: name</option>
-      </select>
-      <select id="cat"><option value="">All categories</option></select>
-      <span class="stat" id="stat"></span>
-    </div>
-    <div class="chips" id="chips"></div>
+
+<div id="boardView">
+  <div class="controls">
+    <input id="q" type="search" placeholder="Search protocol, category, chain…" autocomplete="off">
+    <select id="cat"><option value="">All categories</option></select>
+    <select id="tier">
+      <option value="">All tiers</option>
+      <option value="hot">Hot</option>
+      <option value="warm">Warm</option>
+      <option value="cool">Cool</option>
+    </select>
+    <label><input type="checkbox" id="hasFarm"> farm plan only</label>
+    <button class="btn" id="reset">Reset</button>
+    <span class="muted" id="count"></span>
+  </div>
+  <main>
     <table>
       <thead>
         <tr>
-          <th data-k="rank">#</th>
-          <th data-k="name">Protocol</th>
-          <th data-k="cat">Category</th>
-          <th data-k="tvl">TVL</th>
-          <th data-k="value">Implied value</th>
-          <th data-k="score">Score</th>
+          <th data-sort="rank">#</th>
+          <th data-sort="name">Protocol</th>
+          <th data-sort="category" class="col-hide">Category</th>
+          <th data-sort="impliedValue">Implied value <span class="ar" id="ar-impliedValue"></span></th>
+          <th data-sort="score" class="col-hide">Score <span class="ar" id="ar-score"></span></th>
+          <th data-sort="tier">Tier</th>
+          <th class="col-hide">Farm</th>
         </tr>
       </thead>
       <tbody id="rows"></tbody>
     </table>
-    <div class="empty" id="empty" style="display:none">No protocols match this filter.</div>
-  </div>
-  <div class="right detail" id="detail">
-    <div class="empty">Select a protocol to see its launch case and farm plan.</div>
-  </div>
+    <div class="empty hide" id="empty">No protocols match these filters.</div>
+  </main>
 </div>
-<div class="foot" id="foot"></div>
+
+<div id="detailView" class="hide">
+  <main>
+    <div class="detail" id="detail"></div>
+  </main>
+</div>
+
+<div class="foot">
+  Offline snapshot · data inlined · no network calls · click any row for the detail view and farm plan.
+</div>
 
 <script>
-(function(){
-  "use strict";
-  var DATA = window.RADAR_DATA || {generated:null, rows:[]};
-  var rows = (DATA.rows || []).slice();
-  var state = {q:"", sort:"value", cat:"", chips:{hot:false, warm:false, fresh:false}, sel:null};
+const DATA = window.__BOARD__ || {generatedAt:null, rows:[]};
+const ROWS = (DATA.rows||[]).slice();
 
-  function fmtUsd(n){
-    if(n==null||isNaN(n)) return "—";
-    var a=Math.abs(n), s=n<0?"-":"";
-    if(a>=1e9) return s+"$"+(a/1e9).toFixed(2)+"B";
-    if(a>=1e6) return s+"$"+(a/1e6).toFixed(2)+"M";
-    if(a>=1e3) return s+"$"+(a/1e3).toFixed(1)+"K";
-    return s+"$"+a.toFixed(0);
+/* ---------- helpers ---------- */
+const $ = s => document.querySelector(s);
+const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function fmtUSD(n){
+  if(n==null||isNaN(n)) return "—";
+  const a=Math.abs(n);
+  if(a>=1e9) return "$"+(n/1e9).toFixed(2)+"B";
+  if(a>=1e6) return "$"+(n/1e6).toFixed(2)+"M";
+  if(a>=1e3) return "$"+(n/1e3).toFixed(1)+"K";
+  return "$"+Math.round(n);
+}
+function tierOf(r){
+  const t=(r.tier||"").toLowerCase();
+  if(t==="hot"||t==="warm"||t==="cool") return t;
+  const s=Number(r.score)||0;
+  return s>=70?"hot":s>=40?"warm":"cool";
+}
+const TIER_LABEL={hot:"HOT",warm:"WARM",cool:"COOL"};
+
+/* ---------- stats ---------- */
+function renderStats(){
+  const n=ROWS.length;
+  const total=ROWS.reduce((a,r)=>a+(Number(r.impliedValue)||0),0);
+  const hot=ROWS.filter(r=>tierOf(r)==="hot").length;
+  const withFarm=ROWS.filter(r=>r.farmPlan&&(Array.isArray(r.farmPlan)?r.farmPlan.length:r.farmPlan)).length;
+  const gen=DATA.generatedAt?new Date(DATA.generatedAt).toISOString().slice(0,16).replace("T"," ")+" UTC":"—";
+  $("#stats").innerHTML =
+    `<span><b>${n}</b> protocols</span>`+
+    `<span><b>${hot}</b> hot</span>`+
+    `<span><b>${withFarm}</b> with farm plan</span>`+
+    `<span>pooled implied value <b>${fmtUSD(total)}</b></span>`+
+    `<span>snapshot <b>${esc(gen)}</b></span>`;
+}
+
+/* ---------- filters ---------- */
+const state={q:"",cat:"",tier:"",hasFarm:false,sort:"rank",dir:1};
+
+function categories(){
+  const set=new Set();
+  ROWS.forEach(r=>{if(r.category)set.add(r.category)});
+  return [...set].sort();
+}
+function fillCats(){
+  const sel=$("#cat");
+  categories().forEach(c=>{
+    const o=document.createElement("option");o.value=c;o.textContent=c;sel.appendChild(o);
+  });
+}
+function matches(r){
+  if(state.cat && r.category!==state.cat) return false;
+  if(state.tier && tierOf(r)!==state.tier) return false;
+  if(state.hasFarm){
+    const fp=r.farmPlan;
+    const ok=Array.isArray(fp)?fp.length>0:!!fp;
+    if(!ok) return false;
   }
-  function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
-  function heat(r){
-    var s = r.score==null?0:r.score;
-    if(s>=75) return "hot";
-    if(s>=50) return "warm";
-    return "";
+  if(state.q){
+    const hay=(r.name+" "+(r.category||"")+" "+(r.chains||[]).join(" ")+" "+(r.description||"")).toLowerCase();
+    if(!hay.includes(state.q.toLowerCase())) return false;
   }
-  function matches(r){
-    if(state.cat && r.category!==state.cat) return false;
-    var h=heat(r);
-    if(state.chips.hot && h!=="hot") return false;
-    if(state.chips.warm && h!=="warm") return false;
-    if(state.chips.fresh && !(r.daysSinceLaunch==null||r.daysSinceLaunch<=90)) return false;
-    if(state.q){
-      var q=state.q.toLowerCase();
-      var hay=[r.name,r.category,r.chains&&r.chains.join(" "),r.description,r.reason].join(" ").toLowerCase();
-      if(hay.indexOf(q)<0) return false;
-    }
-    return true;
+  return true;
+}
+function sortRows(rows){
+  const k=state.sort, d=state.dir;
+  return rows.slice().sort((a,b)=>{
+    let av=a[k],bv=b[k];
+    if(k==="rank"){av=Number(a.rank)||1e9;bv=Number(b.rank)||1e9;}
+    else if(k==="impliedValue"||k==="score"){av=Number(av)||0;bv=Number(bv)||0;}
+    else if(k==="tier"){const o={hot:0,warm:1,cool:2};av=o[tierOf(a)];bv=o[tierOf(b)];}
+    else{av=String(av||"").toLowerCase();bv=String(bv||"").toLowerCase();}
+    if(av<bv)return -1*d; if(av>bv)return 1*d; return 0;
+  });
+}
+
+/* ---------- board ---------- */
+function renderBoard(){
+  const filtered=sortRows(ROWS.filter(matches));
+  const maxV=Math.max(1,...ROWS.map(r=>Number(r.impliedValue)||0));
+  const tb=$("#rows");
+  tb.innerHTML=filtered.map(r=>{
+    const t=tierOf(r);
+    const v=Number(r.impliedValue)||0;
+    const pct=Math.max(2,Math.round(v/maxV*100));
+    const fp=r.farmPlan;
+    const hasFarm=Array.isArray(fp)?fp.length>0:!!fp;
+    return `<tr data-id="${esc(r.id||r.slug||r.name)}">
+      <td class="rank">${esc(r.rank!=null?r.rank:"—")}</td>
+      <td><div class="name">${esc(r.name)}</div>
+        <div class="cat">${esc((r.chains||[]).slice(0,3).join(" · ")||"")}</div></td>
+      <td class="col-hide"><span class="chip">${esc(r.category||"—")}</span></td>
+      <td><span class="val">${fmtUSD(v)}</span>
+        <div class="bar" style="margin-top:5px"><i style="width:${pct}%"></i></div></td>
+      <td class="col-hide score">${(Number(r.score)||0).toFixed(1)}</td>
+      <td><span class="tier t-${t}">${TIER_LABEL[t]}</span></td>
+      <td class="col-hide">${hasFarm?'<span class="chip" style="color:var(--acc);border-color:#1d4a33">plan ✓</span>':'<span class="muted">—</span>'}</td>
+    </tr>`;
+  }).join("");
+  $("#empty").classList.toggle("hide",filtered.length>0);
+  $("#count").textContent=`${filtered.length} / ${ROWS.length} shown`;
+  tb.querySelectorAll("tr").forEach(tr=>{
+    tr.addEventListener("click",()=>openDetail(tr.getAttribute("data-id")));
+  });
+}
+
+/* ---------- detail ---------- */
+function findRow(id){
+  return ROWS.find(r=>String(r.id||r.slug||r.name)===String(id));
+}
+function stepsOf(r){
+  const fp=r.farmPlan;
+  if(Array.isArray(fp)) return fp.map(s=>typeof s==="string"?s:(s.step||s.text||JSON.stringify(s)));
+  if(fp&&typeof fp==="object"){
+    if(Array.isArray(fp.steps)) return fp.steps.map(s=>typeof s==="string"?s:(s.step||s.text||JSON.stringify(s)));
+    return Object.values(fp).map(String);
   }
-  function sortRows(list){
-    var k=state.sort;
-    list.sort(function(a,b){
-      if(k==="name") return String(a.name).localeCompare(String(b.name));
-      if(k==="tvl") return (b.tvl||0)-(a.tvl||0);
-      if(k==="score") return (b.score||0)-(a.score||0);
-      return (b.impliedValue||0)-(a.impliedValue||0);
-    });
-    return list;
-  }
-  function renderChips(){
-    var el=document.getElementById("chips");
-    el.innerHTML="";
-    var defs=[["hot","🔥 Hot (score ≥ 75)"],["warm","Warm (50–74)"],["fresh","New (≤ 90d)"]];
-    defs.forEach(function(d){
-      var b=document.createElement("span");
-      b.className="chip"+(state.chips[d[0]]?" on":"");
-      b.textContent=d[1];
-      b.onclick=function(){state.chips[d[0]]=!state.chips[d[0]];render();};
-      el.appendChild(b);
-    });
-  }
-  function renderCats(){
-    var sel=document.getElementById("cat");
-    var cats={};
-    rows.forEach(function(r){if(r.category)cats[r.category]=1;});
-    var keys=Object.keys(cats).sort();
-    sel.innerHTML='<option value="">All categories</option>';
-    keys.forEach(function(c){
-      var o=document.createElement("option");
-      o.value=c;o.textContent=c;
-      sel.appendChild(o);
-    });
-  }
-  function render(){
-    renderChips();
-    var list=sortRows(rows.filter(matches));
-    var tb=document.getElementById("rows");
-    tb.innerHTML="";
-    list.forEach(function(r){
-      var tr=document.createElement("tr");
-      if(state.sel===r.id) tr.className="sel";
-      var h=heat(r);
-      tr.innerHTML=
-        '<td class="rank">'+esc(r.rank)+'</td>'+
-        '<td><div class="name">'+esc(r.name)+(h?'<span class="tag '+h+'">'+esc(h)+'</span>':'')+'</div>'+
-          '<div class="cat">'+esc((r.chains||[]).join(" · "))+'</div></td>'+
-        '<td>'+esc(r.category||"—")+'</td>'+
-        '<td>'+fmtUsd(r.tvl)+'</td>'+
-        '<td class="val">'+fmtUsd(r.impliedValue)+'</td>'+
-        '<td>'+esc(r.score==null?"—":r.score)+'</td>';
-      tr.onclick=function(){state.sel=r.id;render();showDetail(r);};
-      tb.appendChild(tr);
-    });
-    document.getElementById("empty").style.display=list.length?"none":"block";
-    document.getElementById("stat").textContent=list.length+" of "+rows.length+" protocols";
-    var total=list.reduce(function(a,r){return a+(r.impliedValue||0);},0);
-    document.getElementById("foot").textContent=
-      "Snapshot "+(DATA.generated||"unknown")+" · "+rows.length+" tokenless protocols · filtered implied value "+fmtUsd(total)+" · generated by main.ts";
-  }
-  function showDetail(r){
-    var el=document.getElementById("detail");
-    var steps=(r.farmPlan||[]).map(function(s){return "<li>"+esc(s)+"</li>";}).join("");
-    var score=r.score==null?0:r.score;
-    var conf=r.confidence==null?null:Math.round(r.confidence*100);
-    el.innerHTML=
-      '<h2>'+esc(r.name)+'</h2>'+
-      '<div class="meta">'+esc(r.category||"Uncategorized")+' · '+(r.chains||[]).join(", ")+' · rank #'+esc(r.rank)+'</div>'+
-      '<div class="big">'+fmtUsd(r.impliedValue)+'</div>'+
-      '<div class="note">Implied launch value (FDV proxy from TVL, revenue and comparables)</div>'+
-      '<div class="kv">'+
-        '<div class="k">TVL</div><div class="v">'+fmtUsd(r.tvl)+'</div>'+
-        '<div class="k">Launch score</div><div class="v">'+score+'/100'+(conf!=null?' · confidence '+conf+'%':'')+'</div>'+
-        '<div class="k">Token status</div><div class="v"><span class="pill no">No token</span></div>'+
-        '<div class="k">Wrapped/staked?</div><div class="v">'+(r.isWrappedOrStaked?'<span class="pill no">Yes — excluded</span>':'<span class="pill">No</span>')+'</div>'+
-        '<div class="k">Days since launch</div><div class="v">'+(r.daysSinceLaunch==null?"—":esc(r.daysSinceLaunch))+'</div>'+
-        '<div class="k">Revenue (30d)</div><div class="v">'+fmtUsd(r.revenue30d)+'</div>'+
-      '</div>'+
-      '<div class="section"><h3>Why it ranks here</h3><div>'+esc(r.reason||r.description||"")+'</div>'+
-        '<div class="bar"><i style="width:'+Math.max(2,Math.min(100,score))+'%"></i></div></div>'+
-      '<div class="section"><h3>Farm plan</h3><ol class="steps">'+(steps||"<li>No plan recorded.</li>")+'</ol></div>'+
-      '<div class="note">This is research, not financial advice. Verify contracts before interacting.</div>';
-  }
-  document.getElementById("q").oninput=function(e){state.q=e.target.value;render();};
-  document.getElementById("sort").onchange=function(e){state.sort=e.target.value;render();};
-  document.getElementById("cat").onchange=function(e){state.cat=e.target.value;render();};
-  renderCats();
-  render();
-  if(rows.length){state.sel=rows[0].id;showDetail(rows[0]);render();}
-})();
-</script>
-</body>
-</html>
+  if(typeof fp==="string"&&fp.trim()) return [fp];
+  return [];
+}
+function openDetail(id){
+  const r=findRow(id);
+  if(!r) return;
+  const t=tierOf(r);
+  const steps=stepsOf(r);
+  const chains=(r.chains||[]);
+  const why=r.why||r.rationale||r.description||"";
+  const score=Number(r.score)||0;
+  const v=Number(r.impliedValue)||0;
+  const el=$("#detail");
+  el.innerHTML=`
+    <a class="back" href="#" id="backLink">← back to board</a>
+    <div class="dhead">
+      <div>
+        <h2>${esc(r.name)}</h2>
+        <div class="muted">${esc(r.category||"uncategorized")}${chains.length?" · "+esc(chains.join(", ")):""}</div>
+      </div>
+      <div style="text-align:right">
+        <div class="val" style="font-size:24px">${fmtUSD(v)}</div>
+        <div><span class="tier t-${t}">${TIER_LABEL[t]}</span> <span class="muted">rank #${esc(r.rank!=null?r.rank:"—")}</span></div>
+      </div>
+    </div>
+    <div class="kv">
+      <div class="box"><div class="k">Implied value</div><div class="v" style="color:var(--acc)">${fmtUSD(v)}</div></div>
+      <div class="box"><div class="k">Launch score</div><div class="v">${score.toFixed(1)}</div></div>
+      <div class="box"><div class="k">Tier</div><div class="v">${TIER_LABEL[t]}</div></div>
+      <div class="box"><div class="k">Token status</div><div class="v" style="font-size:13px">${esc(r.tokenStatus||"no token")}</div></div>
+      <div class="box"><div class="k">Chains</div><div class="v" style="font-size:13px">${esc(chains.join(", ")||"—")}</div></div>
+      <div class="box"><div class="k">TVL</div><div class="v" style="font-size:13px">${fmtUSD(Number(r.tvl)||0)}</div></div>
+    </div>
+    ${why?`<div class="section"><h3>Why it ranks here</h3><div class="why">${esc(why)}</div></div>`:""}
+    <div class="section"><h3>Farm plan · steps to farm it</h3>
+      ${steps.length?`<ol class="steps">${steps.map(s=>`<li>${esc(s)}</li>`).join("")}</ol>`
+        :`<div class="why muted">No farm plan recorded for this protocol.</div>`}
+    </div>
+    ${r.tags&&r.tags.length?`<div class="section"><h3>Tags</h3><div>${r.tags.map(x=>`<span class="pill">${esc(x)}</span>`).join("")}</div></div>`:""}
+    ${r.url?`<div class="section"><h3>Links</h3><div class="muted">${esc(r.url)}</div></div>`:""}
+  `;
+  $("#boardView").classList.add("hide");
+  $("#detailView").classList.remove("hide");
+  window.scrollTo(0,0);
+  $("#backLink").addEventListener("click",e=>{e.preventDefault();closeDetail();});
+  if(location.hash!=="#p="+encodeURIComponent(id)) history.replaceState(null,"","#p="+encodeURIComponent(id));
+}
+function closeDetail(){
+  $("#detailView").classList.add("hide");
+  $("#boardView").classList.remove("hide");
