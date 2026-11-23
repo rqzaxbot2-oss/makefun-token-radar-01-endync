@@ -5,330 +5,318 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Token Launch Radar</title>
 <style>
-  :root {
-    --bg: #0b0e14;
-    --panel: #121722;
-    --panel2: #171d2b;
-    --line: #232c3d;
-    --text: #d7dee9;
-    --muted: #8794a8;
-    --accent: #4fd1c5;
-    --accent2: #f6ad55;
-    --good: #68d391;
-    --bad: #fc8181;
-    --chip: #1d2637;
-  }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; }
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    font-size: 14px;
-    line-height: 1.45;
-  }
-  header {
-    position: sticky; top: 0; z-index: 20;
-    background: linear-gradient(180deg, #0d1220 0%, #0b0e14 100%);
-    border-bottom: 1px solid var(--line);
-    padding: 14px 22px;
-    display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
-  }
-  header h1 { font-size: 18px; margin: 0; letter-spacing: .3px; }
-  header h1 span { color: var(--accent); }
-  .sub { color: var(--muted); font-size: 12px; }
-  .stats { margin-left: auto; display: flex; gap: 16px; flex-wrap: wrap; }
-  .stat { text-align: right; }
-  .stat b { display: block; font-size: 16px; color: var(--accent); }
-  .stat small { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
-  main { padding: 18px 22px 60px; max-width: 1400px; margin: 0 auto; }
-  .controls {
-    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
-    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-    padding: 12px; margin-bottom: 16px;
-  }
-  .controls input[type=search], .controls select {
-    background: var(--panel2); color: var(--text); border: 1px solid var(--line);
-    border-radius: 8px; padding: 8px 10px; font-size: 13px; outline: none;
-  }
-  .controls input[type=search] { flex: 1 1 240px; min-width: 180px; }
-  .controls input[type=search]:focus, .controls select:focus { border-color: var(--accent); }
-  .controls label { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 6px; }
-  .btn {
-    background: var(--chip); color: var(--text); border: 1px solid var(--line);
-    border-radius: 8px; padding: 8px 12px; cursor: pointer; font-size: 12px;
-  }
-  .btn:hover { border-color: var(--accent); color: var(--accent); }
-  .btn.active { background: #123a37; border-color: var(--accent); color: var(--accent); }
-  table { width: 100%; border-collapse: collapse; }
-  thead th {
-    text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .6px;
-    color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--line);
-    position: sticky; top: 0; background: var(--bg); cursor: pointer; user-select: none;
-  }
-  thead th:hover { color: var(--accent); }
-  thead th .arrow { color: var(--accent); font-size: 10px; }
-  tbody tr { border-bottom: 1px solid #161c28; cursor: pointer; }
-  tbody tr:hover { background: var(--panel); }
-  tbody td { padding: 9px 10px; vertical-align: top; }
-  .rank { color: var(--muted); font-variant-numeric: tabular-nums; width: 44px; }
-  .name { font-weight: 600; color: #eaf0f8; }
-  .name small { display: block; color: var(--muted); font-weight: 400; font-size: 11px; }
-  .val { font-variant-numeric: tabular-nums; color: var(--accent2); font-weight: 600; white-space: nowrap; }
-  .chips { display: flex; gap: 4px; flex-wrap: wrap; }
-  .chip {
-    background: var(--chip); border: 1px solid var(--line); border-radius: 999px;
-    padding: 1px 8px; font-size: 11px; color: var(--muted); white-space: nowrap;
-  }
-  .chip.cat { color: var(--accent); border-color: #1f4a46; }
-  .chip.warn { color: var(--bad); border-color: #4a2222; }
-  .chip.ok { color: var(--good); border-color: #1f4a2e; }
-  .bar { height: 6px; background: #1a2130; border-radius: 3px; overflow: hidden; min-width: 90px; }
-  .bar > i { display: block; height: 100%; background: linear-gradient(90deg, #2c7a7b, var(--accent)); }
-  .empty { text-align: center; color: var(--muted); padding: 40px; }
-  /* detail */
-  .detail { display: none; }
-  .detail.show { display: block; }
-  .board.hide { display: none; }
-  .back { margin-bottom: 14px; }
-  .dhead {
-    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
-    padding: 18px; margin-bottom: 16px;
-  }
-  .dhead h2 { margin: 0 0 4px; font-size: 22px; }
-  .dhead .meta { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
-  .card {
-    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
-    padding: 14px 16px;
-  }
-  .card h3 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); }
-  .kv { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0; border-bottom: 1px dashed #1b2231; font-size: 13px; }
-  .kv:last-child { border-bottom: 0; }
-  .kv span:first-child { color: var(--muted); }
-  .kv span:last-child { text-align: right; font-variant-numeric: tabular-nums; }
-  .steps { counter-reset: s; list-style: none; padding: 0; margin: 0; }
-  .steps li {
-    counter-increment: s; position: relative; padding: 8px 0 8px 34px;
-    border-bottom: 1px dashed #1b2231; font-size: 13px;
-  }
-  .steps li:last-child { border-bottom: 0; }
-  .steps li::before {
-    content: counter(s); position: absolute; left: 0; top: 8px;
-    width: 22px; height: 22px; border-radius: 50%; background: #123a37; color: var(--accent);
-    display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700;
-  }
-  .why { color: var(--muted); font-size: 12.5px; }
-  .score-big { font-size: 30px; color: var(--accent2); font-weight: 700; font-variant-numeric: tabular-nums; }
-  .foot { color: var(--muted); font-size: 11px; margin-top: 26px; text-align: center; }
-  .tagline { color: var(--muted); font-size: 12px; margin: 0 0 12px; }
-  @media (max-width: 720px) {
-    .hide-sm { display: none; }
-    main { padding: 12px; }
-  }
+:root{--bg:#0b0f14;--panel:#121821;--panel2:#182231;--line:#243044;--txt:#e6edf6;--dim:#8b9bb4;--acc:#3ddc97;--acc2:#5aa9ff;--warn:#ffb454;--bad:#ff6b6b}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.45 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:12px;align-items:center;background:linear-gradient(180deg,#101722,#0b0f14)}
+h1{font-size:19px;margin:0;letter-spacing:.3px}
+h1 span{color:var(--acc)}
+.sub{color:var(--dim);font-size:12px}
+.spacer{flex:1}
+.stats{display:flex;gap:10px;flex-wrap:wrap}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:12px;color:var(--dim)}
+.stat b{color:var(--txt);font-size:14px;display:block}
+main{display:grid;grid-template-columns:minmax(0,1fr) 420px;gap:0;height:calc(100vh - 74px)}
+@media(max-width:900px){main{grid-template-columns:1fr;height:auto}}
+.left{overflow:auto;padding:14px 16px}
+.right{border-left:1px solid var(--line);overflow:auto;padding:16px;background:var(--panel)}
+.filters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center}
+input,select{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:7px;padding:7px 9px;font:inherit;font-size:13px}
+input[type=search]{min-width:220px}
+input[type=range]{padding:0;accent-color:var(--acc)}
+label.f{font-size:12px;color:var(--dim);display:flex;align-items:center;gap:6px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{position:sticky;top:0;background:var(--bg);text-align:left;color:var(--dim);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;padding:8px 8px;border-bottom:1px solid var(--line);cursor:pointer;user-select:none;white-space:nowrap}
+th:hover{color:var(--txt)}
+td{padding:8px;border-bottom:1px solid #1a2331;vertical-align:top}
+tr.row{cursor:pointer}
+tr.row:hover{background:#141c28}
+tr.row.sel{background:#16263a;box-shadow:inset 3px 0 0 var(--acc)}
+.rank{color:var(--dim);font-variant-numeric:tabular-nums;width:34px}
+.name{font-weight:600}
+.cat{color:var(--dim);font-size:11px}
+.val{font-variant-numeric:tabular-nums;color:var(--acc);font-weight:600;white-space:nowrap}
+.score{font-variant-numeric:tabular-nums;white-space:nowrap}
+.bar{height:5px;background:#1d2838;border-radius:3px;overflow:hidden;margin-top:4px;min-width:60px}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--acc2),var(--acc))}
+.tag{display:inline-block;font-size:10px;padding:1px 6px;border-radius:10px;border:1px solid var(--line);color:var(--dim);margin:1px 3px 1px 0}
+.tag.hi{color:var(--acc);border-color:#1f5c43}
+.tag.mid{color:var(--warn);border-color:#5c4a1f}
+.tag.lo{color:var(--bad);border-color:#5c2323}
+.empty{color:var(--dim);padding:30px;text-align:center}
+.detail h2{margin:0 0 2px;font-size:20px}
+.detail .meta{color:var(--dim);font-size:12px;margin-bottom:12px}
+.kv{display:grid;grid-template-columns:130px 1fr;gap:6px 10px;font-size:13px;margin-bottom:14px}
+.kv div:nth-child(odd){color:var(--dim)}
+.section{border-top:1px solid var(--line);padding-top:12px;margin-top:12px}
+.section h3{font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--dim);margin:0 0 8px}
+ol.steps{margin:0;padding-left:20px}
+ol.steps li{margin-bottom:8px}
+ol.steps li b{color:var(--acc2)}
+.why{color:var(--dim);font-size:12px;margin-top:4px}
+.pill{display:inline-block;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:3px 8px;font-size:12px;margin:0 6px 6px 0}
+.big{font-size:26px;color:var(--acc);font-weight:700;font-variant-numeric:tabular-nums}
+.hint{color:var(--dim);font-size:12px;margin:6px 0 0}
+a{color:var(--acc2)}
+.close{float:right;background:none;border:1px solid var(--line);color:var(--dim);border-radius:6px;padding:3px 8px;cursor:pointer}
+.close:hover{color:var(--txt)}
 </style>
 </head>
 <body>
 <header>
   <div>
     <h1>Token Launch <span>Radar</span></h1>
-    <div class="sub" id="subline">Loading board…</div>
+    <div class="sub">Protocols DefiLlama tracks that still have no token &middot; ranked by what a launch would be worth</div>
   </div>
+  <div class="spacer"></div>
   <div class="stats" id="stats"></div>
 </header>
-
 <main>
-  <section class="board" id="board">
-    <p class="tagline">Protocols DefiLlama tracks that still record no token and are not a wrapped or staked product of one that trades, ranked by what their launch would be worth.</p>
-    <div class="controls">
-      <input type="search" id="q" placeholder="Search protocol, chain, category…" autocomplete="off">
+  <section class="left">
+    <div class="filters">
+      <input type="search" id="q" placeholder="Search protocol, chain, category…">
       <select id="cat"><option value="">All categories</option></select>
       <select id="chain"><option value="">All chains</option></select>
-      <label><input type="checkbox" id="noToken" checked> No token only</label>
-      <label><input type="checkbox" id="hideWrapped" checked> Exclude wrapped/staked</label>
-      <button class="btn" id="reset">Reset</button>
-      <button class="btn" id="csv">Export CSV</button>
+      <select id="sort">
+        <option value="value">Sort: implied value</option>
+        <option value="score">Sort: launch score</option>
+        <option value="tvl">Sort: TVL</option>
+        <option value="name">Sort: name</option>
+      </select>
+      <label class="f">Min score <input type="range" id="minScore" min="0" max="100" value="0" step="5"><span id="minScoreV">0</span></label>
+      <label class="f"><input type="checkbox" id="hideWrapped" checked> Exclude wrapped/staked</label>
+      <button class="close" id="reset" style="float:none">Reset</button>
     </div>
-    <div style="overflow-x:auto">
-      <table id="tbl">
-        <thead>
-          <tr>
-            <th data-k="rank">#</th>
-            <th data-k="name">Protocol</th>
-            <th data-k="category" class="hide-sm">Category</th>
-            <th data-k="chains" class="hide-sm">Chains</th>
-            <th data-k="tvl">TVL</th>
-            <th data-k="value">Implied value</th>
-            <th data-k="score">Launch score</th>
-            <th data-k="fees" class="hide-sm">Fees 30d</th>
-          </tr>
-        </thead>
-        <tbody id="rows"></tbody>
-      </table>
-    </div>
-    <div class="empty" id="empty" style="display:none">No protocols match these filters.</div>
+    <div id="count" class="sub" style="margin-bottom:8px"></div>
+    <table>
+      <thead><tr>
+        <th data-k="rank">#</th>
+        <th data-k="name">Protocol</th>
+        <th data-k="tvl">TVL</th>
+        <th data-k="value">Implied value</th>
+        <th data-k="score">Launch score</th>
+        <th data-k="chains">Chains</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div id="empty" class="empty" style="display:none">No protocols match these filters.</div>
   </section>
-
-  <section class="detail" id="detail"></section>
-
-  <div class="foot">Static offline dashboard · data from board.json · no network calls</div>
+  <aside class="right" id="detail">
+    <div class="empty">Select a protocol to see its launch case and farm plan.</div>
+  </aside>
 </main>
-
 <script>
-(function () {
-  "use strict";
+(function(){
+"use strict";
+var BOARD = window.__BOARD__ || null;
+var rows = [], byId = {}, selected = null;
 
-  var DATA = { rows: [], meta: {} };
-  var state = { q: "", cat: "", chain: "", noToken: true, hideWrapped: true, sortKey: "rank", sortDir: 1 };
-  var current = null;
+function fmtUsd(n){
+  if(n==null||isNaN(n)) return "—";
+  var a=Math.abs(n);
+  if(a>=1e9) return "$"+(n/1e9).toFixed(2)+"B";
+  if(a>=1e6) return "$"+(n/1e6).toFixed(2)+"M";
+  if(a>=1e3) return "$"+(n/1e3).toFixed(1)+"K";
+  return "$"+Math.round(n);
+}
+function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c];});}
+function scoreClass(s){return s>=70?"hi":s>=45?"mid":"lo";}
 
-  function esc(s) {
-    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
-      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+function normalize(raw){
+  var list = Array.isArray(raw)?raw:(raw&&Array.isArray(raw.protocols)?raw.protocols:(raw&&Array.isArray(raw.board)?raw.board:[]));
+  return list.map(function(p,i){
+    var tvl = num(p.tvl!=null?p.tvl:p.tvlUsd);
+    var value = num(p.impliedValue!=null?p.impliedValue:(p.value!=null?p.value:p.implied_value));
+    var score = num(p.launchScore!=null?p.launchScore:(p.score!=null?p.score:p.launch_score));
+    var chains = p.chains||p.chainsList||(p.chain?[p.chain]:[]);
+    if(typeof chains==="string") chains=chains.split(/[,;]\s*/);
+    return {
+      id: p.id||p.slug||p.name||("p"+i),
+      name: p.name||p.protocol||p.id||("Protocol "+i),
+      category: p.category||p.cat||"Uncategorized",
+      chains: chains.filter(Boolean),
+      tvl: tvl,
+      value: value,
+      score: score,
+      wrapped: !!(p.wrapped||p.isWrapped||p.staked||p.isStaked||p.wrappedOrStaked),
+      why: p.why||p.rationale||p.reason||"",
+      farm: p.farm||p.farmPlan||p.plan||[],
+      url: p.url||p.defillama||"",
+      mcap: num(p.mcap||p.marketCap||p.fdv),
+      volume: num(p.volume||p.volume24h),
+      fees: num(p.fees||p.fees24h),
+      raw: p
+    };
+  });
+}
+function num(v){ if(v==null) return null; if(typeof v==="number") return isFinite(v)?v:null; var n=parseFloat(String(v).replace(/[$,]/g,"")); return isFinite(n)?n:null; }
+
+function farmSteps(p){
+  var f = p.farm;
+  if(Array.isArray(f) && f.length){
+    return f.map(function(s){
+      if(typeof s==="string") return {title:s,detail:""};
+      return {title:s.title||s.step||s.action||"Step", detail:s.detail||s.desc||s.description||""};
     });
   }
-  function num(n) {
-    if (n == null || isNaN(n)) return "—";
-    var a = Math.abs(n);
-    if (a >= 1e9) return "$" + (n / 1e9).toFixed(2) + "B";
-    if (a >= 1e6) return "$" + (n / 1e6).toFixed(2) + "M";
-    if (a >= 1e3) return "$" + (n / 1e3).toFixed(1) + "K";
-    return "$" + Math.round(n);
-  }
-  function pct(n) { return n == null || isNaN(n) ? "—" : (n * 100).toFixed(1) + "%"; }
+  // Derive a sensible farm plan from the protocol's own data.
+  var steps=[];
+  steps.push({title:"Bridge or fund on "+(p.chains[0]||"its main chain"), detail:"Keep gas and a stable buffer ready; the protocol lives on "+(p.chains.join(", ")||"one chain")+"."});
+  if(p.tvl!=null) steps.push({title:"Provide liquidity where TVL is deepest", detail:"TVL is "+fmtUsd(p.tvl)+"; LP in the deepest pool to earn points and stay liquid."});
+  steps.push({title:"Check for a points or season program", detail:"Most pre-token protocols run points seasons before launch; farm early and often."});
+  steps.push({title:"Track governance and snapshot signals", detail:"A token usually follows a governance forum post or a snapshot vote; watch the protocol's announcements."});
+  steps.push({title:"Size the position to the implied value", detail:"Implied launch value is "+fmtUsd(p.value)+"; keep exposure proportional to that upside."});
+  return steps;
+}
 
-  function normalize(raw) {
-    var rows = [];
-    var list = Array.isArray(raw) ? raw : (raw && (raw.rows || raw.board || raw.protocols)) || [];
-    for (var i = 0; i < list.length; i++) {
-      var r = list[i] || {};
-      var chains = r.chains || r.chainList || (r.chain ? [r.chain] : []);
-      if (typeof chains === "string") chains = chains.split(/,\s*/);
-      var farm = r.farm || r.farmPlan || r.steps || [];
-      if (typeof farm === "string") farm = farm.split(/\n+/);
-      var value = numOr(r.impliedValue, r.value, r.valuation, r.estimatedValue, r.scoreValue);
-      var tvl = numOr(r.tvl, r.tvlUsd, r.tvl_usd);
-      var fees = numOr(r.fees30d, r.fees, r.fees_30d, r.revenue30d);
-      var score = numOr(r.launchScore, r.score, r.rank_score, r.radarScore);
-      rows.push({
-        rank: numOr(r.rank, r.position, i + 1),
-        name: r.name || r.protocol || r.slug || ("Protocol " + (i + 1)),
-        slug: r.slug || r.id || (r.name || "").toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-        category: r.category || r.sector || "Other",
-        chains: chains.filter(Boolean),
-        tvl: tvl,
-        value: value,
-        fees: fees,
-        score: score,
-        hasToken: r.hasToken === true || r.token === true ? true : (r.hasToken === false || r.token === false ? false : !!(r.tokenSymbol || r.token_symbol)),
-        wrapped: !!(r.wrapped || r.isWrapped || r.staked || r.isStaked || r.wrappedOrStaked),
-        tokenSymbol: r.tokenSymbol || r.token_symbol || null,
-        description: r.description || r.summary || r.why || "",
-        farm: farm,
-        reason: r.reason || r.rationale || r.why || "",
-        url: r.url || r.defillamaUrl || (r.slug ? "https://defillama.com/protocol/" + r.slug : ""),
-        raw: r
-      });
+function renderStats(){
+  var total = rows.length;
+  var sumVal = rows.reduce(function(a,r){return a+(r.value||0);},0);
+  var avg = total?sumVal/total:0;
+  var top = rows.slice().sort(function(a,b){return (b.score||0)-(a.score||0);})[0];
+  document.getElementById("stats").innerHTML =
+    '<div class="stat"><b>'+total+'</b>protocols</div>'+
+    '<div class="stat"><b>'+fmtUsd(sumVal)+'</b>total implied value</div>'+
+    '<div class="stat"><b>'+fmtUsd(avg)+'</b>avg implied value</div>'+
+    '<div class="stat"><b>'+esc(top?top.name:"—")+'</b>top score</div>';
+}
+
+function fillSelect(id, values){
+  var sel=document.getElementById(id);
+  values.sort().forEach(function(v){
+    var o=document.createElement("option"); o.value=v; o.textContent=v; sel.appendChild(o);
+  });
+}
+
+function currentFilters(){
+  return {
+    q: document.getElementById("q").value.trim().toLowerCase(),
+    cat: document.getElementById("cat").value,
+    chain: document.getElementById("chain").value,
+    sort: document.getElementById("sort").value,
+    minScore: parseInt(document.getElementById("minScore").value,10)||0,
+    hideWrapped: document.getElementById("hideWrapped").checked
+  };
+}
+
+function applyFilters(){
+  var f=currentFilters();
+  var out = rows.filter(function(r){
+    if(f.hideWrapped && r.wrapped) return false;
+    if(f.cat && r.category!==f.cat) return false;
+    if(f.chain && r.chains.indexOf(f.chain)<0) return false;
+    if((r.score||0) < f.minScore) return false;
+    if(f.q){
+      var hay=(r.name+" "+r.category+" "+r.chains.join(" ")).toLowerCase();
+      if(hay.indexOf(f.q)<0) return false;
     }
-    return rows;
-  }
-  function numOr() {
-    for (var i = 0; i < arguments.length; i++) {
-      var v = arguments[i];
-      if (v == null || v === "") continue;
-      var n = typeof v === "number" ? v : parseFloat(String(v).replace(/[$,]/g, ""));
-      if (!isNaN(n)) return n;
-    }
-    return null;
-  }
+    return true;
+  });
+  out.sort(function(a,b){
+    if(f.sort==="name") return a.name.localeCompare(b.name);
+    if(f.sort==="tvl") return (b.tvl||0)-(a.tvl||0);
+    if(f.sort==="score") return (b.score||0)-(a.score||0);
+    return (b.value||0)-(a.value||0);
+  });
+  return out;
+}
 
-  function maxOf(key) {
-    var m = 0;
-    DATA.rows.forEach(function (r) { if (r[key] != null && r[key] > m) m = r[key]; });
-    return m || 1;
-  }
+function renderTable(){
+  var list=applyFilters();
+  var tb=document.getElementById("rows");
+  var maxVal = list.reduce(function(m,r){return Math.max(m,r.value||0);},0)||1;
+  tb.innerHTML = list.map(function(r,i){
+    var pct = Math.round(((r.value||0)/maxVal)*100);
+    var cls = scoreClass(r.score||0);
+    return '<tr class="row'+(selected===r.id?' sel':'')+'" data-id="'+esc(r.id)+'">'+
+      '<td class="rank">'+(i+1)+'</td>'+
+      '<td><div class="name">'+esc(r.name)+'</div><div class="cat">'+esc(r.category)+'</div></td>'+
+      '<td class="score">'+fmtUsd(r.tvl)+'</td>'+
+      '<td><div class="val">'+fmtUsd(r.value)+'</div><div class="bar"><i style="width:'+pct+'%"></i></div></td>'+
+      '<td><span class="tag '+cls+'">'+(r.score!=null?Math.round(r.score):"—")+'</span></td>'+
+      '<td class="cat">'+esc(r.chains.slice(0,3).join(", "))+(r.chains.length>3?" +"+(r.chains.length-3):"")+'</td>'+
+    '</tr>';
+  }).join("");
+  document.getElementById("count").textContent = "Showing "+list.length+" of "+rows.length+" protocols";
+  document.getElementById("empty").style.display = list.length?"none":"block";
+  Array.prototype.forEach.call(tb.querySelectorAll("tr.row"),function(tr){
+    tr.addEventListener("click",function(){ select(tr.getAttribute("data-id")); });
+  });
+}
 
-  function filtered() {
-    var q = state.q.trim().toLowerCase();
-    var out = DATA.rows.filter(function (r) {
-      if (state.noToken && r.hasToken) return false;
-      if (state.hideWrapped && r.wrapped) return false;
-      if (state.cat && r.category !== state.cat) return false;
-      if (state.chain && r.chains.indexOf(state.chain) === -1) return false;
-      if (q) {
-        var hay = (r.name + " " + r.category + " " + r.chains.join(" ") + " " + (r.description || "") + " " + (r.tokenSymbol || "")).toLowerCase();
-        if (hay.indexOf(q) === -1) return false;
-      }
-      return true;
-    });
-    var k = state.sortKey, d = state.sortDir;
-    out.sort(function (a, b) {
-      var av = a[k], bv = b[k];
-      if (k === "chains") { av = a.chains.length; bv = b.chains.length; }
-      if (typeof av === "string" || typeof bv === "string") {
-        return String(av).localeCompare(String(bv)) * d;
-      }
-      av = av == null ? -Infinity : av; bv = bv == null ? -Infinity : bv;
-      return (av - bv) * d;
-    });
-    return out;
-  }
+function renderDetail(r){
+  var el=document.getElementById("detail");
+  if(!r){ el.innerHTML='<div class="empty">Select a protocol to see its launch case and farm plan.</div>'; return; }
+  var steps=farmSteps(r);
+  var tags = r.chains.map(function(c){return '<span class="pill">'+esc(c)+'</span>';}).join("");
+  var why = r.why ? '<div class="section"><h3>Why it would be worth a launch</h3><div>'+esc(r.why)+'</div></div>' : "";
+  var links = r.url ? '<div class="section"><h3>Source</h3><a href="'+esc(r.url)+'" target="_blank" rel="noopener">'+esc(r.url)+'</a></div>' : "";
+  el.innerHTML =
+    '<div class="detail">'+
+      '<button class="close" id="closeDetail">Close</button>'+
+      '<h2>'+esc(r.name)+'</h2>'+
+      '<div class="meta">'+esc(r.category)+(r.wrapped?' &middot; wrapped/staked product':' &middot; no token yet')+'</div>'+
+      '<div class="big">'+fmtUsd(r.value)+'</div>'+
+      '<div class="sub" style="margin-bottom:12px">implied launch value</div>'+
+      '<div class="kv">'+
+        '<div>Launch score</div><div><span class="tag '+scoreClass(r.score||0)+'">'+(r.score!=null?Math.round(r.score):"—")+' / 100</span></div>'+
+        '<div>TVL</div><div>'+fmtUsd(r.tvl)+'</div>'+
+        (r.mcap!=null?'<div>Market cap / FDV</div><div>'+fmtUsd(r.mcap)+'</div>':'')+
+        (r.volume!=null?'<div>24h volume</div><div>'+fmtUsd(r.volume)+'</div>':'')+
+        (r.fees!=null?'<div>24h fees</div><div>'+fmtUsd(r.fees)+'</div>':'')+
+        '<div>Chains</div><div>'+esc(r.chains.join(", ")||"—")+'</div>'+
+      '</div>'+
+      (tags?'<div class="section"><h3>Where it lives</h3>'+tags+'</div>':'')+
+      why+
+      '<div class="section"><h3>How to farm it</h3><ol class="steps">'+
+        steps.map(function(s){
+          return '<li><b>'+esc(s.title)+'</b>'+(s.detail?'<div class="why">'+esc(s.detail)+'</div>':'')+'</li>';
+        }).join("")+
+      '</ol></div>'+
+      links+
+    '</div>';
+  document.getElementById("closeDetail").addEventListener("click",function(){ select(null); });
+}
 
-  function renderStats() {
-    var rows = DATA.rows;
-    var noTok = rows.filter(function (r) { return !r.hasToken && !r.wrapped; });
-    var totalVal = noTok.reduce(function (s, r) { return s + (r.value || 0); }, 0);
-    var totalTvl = noTok.reduce(function (s, r) { return s + (r.tvl || 0); }, 0);
-    var el = document.getElementById("stats");
-    el.innerHTML =
-      '<div class="stat"><b>' + noTok.length + '</b><small>No-token</small></div>' +
-      '<div class="stat"><b>' + num(totalVal) + '</b><small>Implied value</small></div>' +
-      '<div class="stat"><b>' + num(totalTvl) + '</b><small>TVL</small></div>';
-    document.getElementById("subline").textContent =
-      rows.length + " protocols tracked · " + noTok.length + " launch candidates · snapshot " + (DATA.meta.generatedAt || DATA.meta.snapshot || "sealed");
+function select(id){
+  selected = id;
+  renderTable();
+  renderDetail(id?byId[id]:null);
+  if(id){
+    var tr=document.querySelector('tr.row[data-id="'+CSS.escape(id)+'"]');
+    if(tr && tr.scrollIntoView) tr.scrollIntoView({block:"nearest"});
   }
+}
 
-  function fillSelects() {
-    var cats = {}, chains = {};
-    DATA.rows.forEach(function (r) {
-      cats[r.category] = (cats[r.category] || 0) + 1;
-      r.chains.forEach(function (c) { chains[c] = (chains[c] || 0) + 1; });
-    });
-    var catSel = document.getElementById("cat");
-    Object.keys(cats).sort().forEach(function (c) {
-      var o = document.createElement("option"); o.value = c; o.textContent = c + " (" + cats[c] + ")"; catSel.appendChild(o);
-    });
-    var chSel = document.getElementById("chain");
-    Object.keys(chains).sort(function (a, b) { return chains[b] - chains[a]; }).forEach(function (c) {
-      var o = document.createElement("option"); o.value = c; o.textContent = c + " (" + chains[c] + ")"; chSel.appendChild(o);
-    });
+function boot(){
+  if(!BOARD){
+    document.getElementById("rows").innerHTML='<tr><td colspan="6" class="empty">No board data loaded. Run main.ts to generate board.json and inject it here.</td></tr>';
+    return;
   }
-
-  function renderBoard() {
-    var rows = filtered();
-    var maxVal = maxOf("value"), maxScore = maxOf("score");
-    var tb = document.getElementById("rows");
-    var html = "";
-    for (var i = 0; i < rows.length; i++) {
-      var r = rows[i];
-      var valW = r.value != null ? Math.max(2, Math.round((r.value / maxVal) * 100)) : 0;
-      var scoreW = r.score != null ? Math.max(2, Math.round((r.score / maxScore) * 100)) : 0;
-      var chips = r.chains.slice(0, 3).map(function (c) { return '<span class="chip">' + esc(c) + "</span>"; }).join("");
-      if (r.chains.length > 3) chips += '<span class="chip">+' + (r.chains.length - 3) + "</span>";
-      html +=
-        '<tr data-slug="' + esc(r.slug) + '">' +
-          '<td class="rank">' + esc(r.rank) + "</td>" +
-          '<td><div class="name">' + esc(r.name) +
-            (r.hasToken ? ' <span class="chip warn">has token</span>' : ' <span class="chip ok">no token</span>') +
-            (r.wrapped ? ' <span class="chip warn">wrapped/staked</span>' : "") +
-            "<small>" + esc(r.description || (r.tokenSymbol ? "Token: " + r.tokenSymbol : "No token recorded")) + "</small></div></td>" +
-          '<td class="hide-sm"><span class="chip cat">' + esc(r.category) + "</span></td>" +
-          '<td class="hide-sm"><div class="chips">' + (chips || "—") + "</div></td>" +
-          '<td style="white-space:nowrap">' + num(r.tvl) + "</td>" +
-          '<td><div class="val">' + num(r.value) + '</div><div class="bar"><i style="width:' + valW + '%"></i></div></td>' +
-          '<td><div style="font-variant-numeric:tabular-nums">' + (r.score != null ? r.score.toFixed(1) : "—") + '</div><div class="bar"><i style="width:' + scoreW + '%"></i></div></td>' +
-          '<td class="hide-sm" style="white-space:nowrap">' + num(r.fees) + "</td>" +
-        "</tr>";
-    }
-    tb.innerHTML = html;
-    document.getElementById
+  rows = normalize(BOARD);
+  rows.forEach(function(r){ byId[r.id]=r; });
+  var cats={}, chains={};
+  rows.forEach(function(r){ cats[r.category]=1; r.chains.forEach(function(c){chains[c]=1;}); });
+  fillSelect("cat",Object.keys(cats));
+  fillSelect("chain",Object.keys(chains));
+  renderStats();
+  renderTable();
+  ["q","cat","chain","sort","minScore","hideWrapped"].forEach(function(id){
+    var el=document.getElementById(id);
+    el.addEventListener("input",function(){
+      if(id==="minScore") document.getElementById("minScoreV").textContent=el.value;
+      renderTable();
+    });
+    el.addEventListener("change",renderTable);
+  });
+  document.getElementById("reset").addEventListener("click",function(){
+    document.getElementById("q").value="";
+    document.getElementById("cat").value="";
+    document.getElementById("chain").value="";
+    document.getElementById("sort").value="value";
+    document.getElementById("minScore").value="0";
+    document.getElementById("minScoreV").textContent="0";
+    document.getElementById("hideWrapped").checked=true;
+    renderTable();
+  });
+  Array.prototype.forEach.call(document.querySelectorAll("th[
