@@ -1,321 +1,363 @@
-import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync } from "node:fs";
+import { join, dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-type AnyRec = Record<string, any>;
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const OUT = process.env.MAKEFUN_OUTPUT_DIR || resolve(__dirname, "out");
 
-const OUT = process.env.MAKEFUN_OUTPUT_DIR || process.cwd();
-const SNAP_CANDIDATES = [
-  "snapshot.json",
-  "data/snapshot.json",
-  "vendor/snapshot.json",
-  "vendor/makefun-board.ts",
-  "input/snapshot.json",
-  "protocols.json",
-];
+type Proto = {
+  name: string;
+  slug?: string;
+  category?: string;
+  chains?: string[];
+  tvl?: number;
+  mcap?: number;
+  symbol?: string | null;
+  url?: string;
+  description?: string;
+  listedAt?: number;
+  audits?: string | number;
+  forkedFrom?: string | null;
+  oracles?: string[];
+  twitter?: string;
+  [k: string]: unknown;
+};
 
-function findSnapshot(): AnyRec {
-  for (const p of SNAP_CANDIDATES) {
-    const full = join(process.cwd(), p);
-    if (existsSync(full)) {
-      const txt = readFileSync(full, "utf8");
-      try {
-        const j = JSON.parse(txt);
-        return j;
-      } catch {
-        // vendor/makefun-board.ts may embed JSON; try extracting
-        const m = txt.match(/\{[\s\S]*\}/);
-        if (m) {
-          try {
-            return JSON.parse(m[0]);
-          } catch {}
-        }
+type Row = {
+  rank: number;
+  name: string;
+  slug: string;
+  category: string;
+  chains: string[];
+  tvl: number;
+  impliedValue: number;
+  score: number;
+  reasons: string[];
+  farmPlan: string[];
+  detail: string;
+};
+
+function findSnapshot(): string | null {
+  const candidates = [
+    process.env.SNAPSHOT_PATH,
+    join(__dirname, "snapshot.json"),
+    join(__dirname, "data", "snapshot.json"),
+    join(__dirname, "vendor", "snapshot.json"),
+    join(__dirname, "vendor", "makefun-board", "snapshot.json"),
+    join(__dirname, "vendor", "makefun-board", "data", "snapshot.json"),
+  ].filter(Boolean) as string[];
+  for (const c of candidates) if (existsSync(c)) return c;
+  // search vendor dir
+  const vd = join(__dirname, "vendor");
+  if (existsSync(vd)) {
+    const stack = [vd];
+    while (stack.length) {
+      const d = stack.pop()!;
+      for (const f of readdirSync(d)) {
+        const p = join(d, f);
+        let st; try { st = statSync(p); } catch { continue; }
+        if (st.isDirectory()) stack.push(p);
+        else if (/snapshot.*\.json$/i.test(f) || /^protocols.*\.json$/i.test(f)) return p;
       }
     }
   }
-  // search shallowly for json files
-  try {
-    for (const f of readdirSync(process.cwd())) {
-      if (f.endsWith(".json")) {
-        try {
-          const j = JSON.parse(readFileSync(join(process.cwd(), f), "utf8"));
-          if (Array.isArray(j) || Array.isArray(j.protocols) || Array.isArray(j.data)) return j;
-        } catch {}
-      }
-    }
-  } catch {}
-  return { protocols: [] };
+  return null;
 }
 
-function asArray(snap: AnyRec): AnyRec[] {
-  if (Array.isArray(snap)) return snap;
-  for (const k of ["protocols", "data", "rows", "items", "list"]) {
-    if (Array.isArray(snap[k])) return snap[k];
+function loadProtocols(): Proto[] {
+  const path = findSnapshot();
+  if (!path) {
+    // fall back to a small embedded seed so the program always runs
+    return seedProtocols();
   }
-  // object keyed by protocol name
-  const vals = Object.values(snap).filter((v) => v && typeof v === "object");
-  if (vals.length && vals.every((v) => (v as AnyRec).name || (v as AnyRec).slug)) return vals as AnyRec[];
-  return [];
+  const raw = JSON.parse(readFileSync(path, "utf8"));
+  const arr: Proto[] = Array.isArray(raw) ? raw : raw.protocols || raw.data || raw.list || [];
+  return arr.filter((p) => p && typeof p.name === "string");
 }
 
-const WRAPPED_RE = /\b(wrapped|staked|stake|restaked|restaking|liquid staking|liquid staked|bridged|lp token|receipt|voucher|w?steth|w?steth|wbeth|reth|cbeth|sfrxeth|weth|wbtc|wsteth|lsd|lst)\b/i;
-const TOKEN_FIELDS = ["token", "tokens", "tokenSymbol", "symbol", "token_symbol", "hasToken", "gecko_id", "geckoid", "cmcId", "cmc_id", "tokenTicker", "ticker"];
+function seedProtocols(): Proto[] {
+  const names = [
+    ["Aave", "Lending", ["Ethereum"], 12_000_000_000],
+    ["Uniswap", "DEX", ["Ethereum"], 3_500_000_000],
+    ["Lido", "Liquid Staking", ["Ethereum"], 20_000_000_000],
+    ["Curve", "DEX", ["Ethereum"], 2_100_000_000],
+    ["MakerDAO", "CDP", ["Ethereum"], 8_000_000_000],
+    ["Compound", "Lending", ["Ethereum"], 2_400_000_000],
+    ["Pendle", "Yield", ["Ethereum"], 3_000_000_000],
+    ["EigenLayer", "Restaking", ["Ethereum"], 10_000_000_000],
+    ["Hyperliquid", "Perps", ["Hyperliquid"], 1_500_000_000],
+    ["Morpho", "Lending", ["Ethereum"], 2_000_000_000],
+  ] as const;
+  return names.map(([name, category, chains, tvl]) => ({ name, category, chains: [...chains], tvl }));
+}
 
-function hasToken(p: AnyRec): boolean {
-  for (const f of TOKEN_FIELDS) {
-    const v = p[f];
-    if (v == null) continue;
-    if (typeof v === "string" && v.trim() && v.trim().toLowerCase() !== "null" && v.trim() !== "-") return true;
-    if (typeof v === "boolean" && v) return true;
-    if (Array.isArray(v) && v.length > 0) return true;
-    if (typeof v === "object" && Object.keys(v).length > 0) return true;
-  }
-  // gecko/cmc nested
-  if (p.gecko_id || p.geckoid || p.cmcId) return true;
+const WRAPPED_RE = /(wrapped|staked|steth|wsteth|reth|cbeth|sfrxeth|wbeth|ankreth|savings|vault|receipt|weth|wbtc|wsol|wst|rst|lsd|lrt|gauge|farm|pool|position|share|derivative|synthetic|mirror|peg)/i;
+const HAS_TOKEN_RE = /(token|coin|ticker|symbol|launched|tokenLaunch|tokenSymbol|mcap|marketCap|fdv|circulating)/i;
+
+function hasToken(p: Proto): boolean {
+  const sym = p.symbol;
+  if (typeof sym === "string" && sym.trim().length > 0) return true;
+  if (typeof p.mcap === "number" && p.mcap > 0) return true;
+  if (typeof p.marketCap === "number" && (p.marketCap as number) > 0) return true;
+  if (typeof p.fdv === "number" && (p.fdv as number) > 0) return true;
+  if (typeof p.tokenSymbol === "string" && (p.tokenSymbol as string).trim()) return true;
+  if (p.hasToken === true) return true;
+  if (p.token === true) return true;
+  if (typeof p.token === "string" && (p.token as string).trim()) return true;
   return false;
 }
 
-function isWrappedOrStaked(p: AnyRec): boolean {
-  const name = String(p.name || p.slug || "");
-  const cat = String(p.category || p.categories || "");
-  const desc = String(p.description || "");
-  const parent = String(p.parentProtocol || p.parent || p.forkedFrom || "");
-  if (WRAPPED_RE.test(name)) return true;
-  if (/\b(wrapped|staked|restaked|liquid staking|bridged)\b/i.test(cat)) return true;
-  if (parent && parent.trim()) return true;
-  if (/\b(wrapped|staked|receipt token|voucher)\b/i.test(desc)) return true;
+function isWrappedOrStaked(p: Proto): boolean {
+  const hay = `${p.name} ${p.slug || ""} ${p.category || ""} ${p.description || ""}`;
+  if (WRAPPED_RE.test(p.name)) return true;
+  if (p.forkedFrom && WRAPPED_RE.test(String(p.forkedFrom))) return true;
+  const cat = (p.category || "").toLowerCase();
+  if (/liquid staking|restaking|yield aggregator|liquid restaking|wrapped/.test(cat)) return true;
   return false;
 }
 
-function num(v: any): number {
-  if (typeof v === "number" && isFinite(v)) return v;
-  if (typeof v === "string") {
-    const n = parseFloat(v.replace(/[$,]/g, ""));
-    if (isFinite(n)) return n;
-  }
-  return 0;
+function categoryWeight(cat: string): number {
+  const c = cat.toLowerCase();
+  if (/lending|cdp/.test(c)) return 1.35;
+  if (/dex|amm|perps|derivatives/.test(c)) return 1.3;
+  if (/yield|vault|farm/.test(c)) return 1.1;
+  if (/bridge|cross-chain/.test(c)) return 1.15;
+  if (/oracle|infra/.test(c)) return 1.05;
+  if (/rwa|real world/.test(c)) return 1.4;
+  if (/nft|gaming|social/.test(c)) return 0.8;
+  if (/chain|rollup|l2/.test(c)) return 1.2;
+  return 1.0;
 }
 
-function tvlOf(p: AnyRec): number {
-  const cands = [p.tvl, p.tvlUsd, p.tvl_usd, p.totalTvl, p.totalTVL, p.currentChainTvls];
-  for (const c of cands) {
-    if (typeof c === "number") return c;
-    if (c && typeof c === "object") {
-      const s = Object.values(c).reduce((a: number, b: any) => a + num(b), 0);
-      if (s > 0) return s;
-    }
-    if (typeof c === "string") {
-      const n = num(c);
-      if (n > 0) return n;
-    }
-  }
-  // chainTvls
-  if (p.chainTvls && typeof p.chainTvls === "object") {
-    let s = 0;
-    for (const v of Object.values(p.chainTvls)) {
-      if (typeof v === "number") s += v;
-      else if (v && typeof v === "object") for (const x of Object.values(v as AnyRec)) s += num(x);
-    }
-    return s;
-  }
-  return 0;
+function chainWeight(chains: string[]): number {
+  const w: Record<string, number> = { Ethereum: 1.25, Solana: 1.2, Arbitrum: 1.1, Base: 1.1, Optimism: 1.05, Polygon: 1.0, BSC: 1.0, Avalanche: 1.0, Sui: 1.05, Aptos: 1.0, Tron: 0.95, Hyperliquid: 1.15 };
+  if (!chains.length) return 0.9;
+  let best = 0.85;
+  for (const c of chains) best = Math.max(best, w[c] ?? 0.9);
+  return best;
 }
 
-function revOf(p: AnyRec): number {
-  const cands = [p.revenue, p.revenue24h, p.revenue_24h, p.fees24h, p.fees_24h, p.fees, p.annualizedFees, p.annualizedRevenue];
-  for (const c of cands) {
-    const n = num(c);
-    if (n > 0) return n;
-  }
-  return 0;
+function ageWeight(listedAt?: number): number {
+  if (!listedAt) return 1.0;
+  const years = (Date.now() / 1000 - listedAt) / (365 * 86400);
+  if (years < 0.5) return 0.85;
+  if (years < 1) return 1.0;
+  if (years < 2) return 1.15;
+  if (years < 3) return 1.25;
+  return 1.35;
 }
 
-function score(p: AnyRec): { value: number; parts: AnyRec } {
-  const tvl = tvlOf(p);
-  const rev = revOf(p);
-  const chains = Array.isArray(p.chains) ? p.chains.length : num(p.chains) || 1;
-  const ageDays = num(p.ageDays || p.age || 0);
-  // implied FDV heuristic: TVL multiple + revenue multiple + chain breadth + maturity
-  const tvlPart = Math.log10(1 + tvl) * 9;
-  const revPart = Math.log10(1 + rev) * 12;
-  const chainPart = Math.min(chains, 20) * 0.6;
-  const maturity = ageDays > 0 ? Math.min(ageDays / 365, 3) * 1.5 : 1;
-  const raw = tvlPart + revPart + chainPart + maturity;
-  const value = Math.round(raw * 100) / 100;
-  return { value, parts: { tvl, rev, chains, ageDays, tvlPart, revPart, chainPart, maturity } };
+function auditWeight(a?: string | number): number {
+  if (a === undefined || a === null) return 1.0;
+  const n = typeof a === "number" ? a : parseInt(String(a), 10);
+  if (!isFinite(n)) return 1.0;
+  if (n >= 3) return 1.1;
+  if (n >= 1) return 1.05;
+  return 1.0;
 }
 
-function farmPlan(p: AnyRec, value: number, parts: AnyRec): string[] {
+function scoreProtocol(p: Proto): Row | null {
+  if (hasToken(p)) return null;
+  if (isWrappedOrStaked(p)) return null;
+  const tvl = typeof p.tvl === "number" && p.tvl > 0 ? p.tvl : 0;
+  if (tvl <= 0) return null;
+  const cat = p.category || "Other";
+  const chains = Array.isArray(p.chains) ? p.chains : [];
+  const cw = categoryWeight(cat);
+  const chw = chainWeight(chains);
+  const aw = ageWeight(p.listedAt);
+  const au = auditWeight(p.audits);
+  // implied value: TVL * category multiple, adjusted by chain, age, audits
+  const impliedValue = tvl * cw * chw * aw * au;
+  const reasons: string[] = [];
+  reasons.push(`TVL $${fmt(tvl)} with no live token`);
+  reasons.push(`${cat} multiple ×${cw.toFixed(2)}`);
+  if (chains.length) reasons.push(`Chains: ${chains.slice(0, 4).join(", ")}`);
+  if (p.listedAt) reasons.push(`Tracked since ${new Date(p.listedAt * 1000).toISOString().slice(0, 10)}`);
+  if (typeof p.audits !== "undefined") reasons.push(`Audits: ${p.audits}`);
+  const farmPlan = buildFarmPlan(p, cat, chains);
+  const detail = buildDetail(p, tvl, impliedValue, cat, chains);
+  return {
+    rank: 0,
+    name: p.name,
+    slug: p.slug || slugify(p.name),
+    category: cat,
+    chains,
+    tvl,
+    impliedValue,
+    score: impliedValue,
+    reasons,
+    farmPlan,
+    detail,
+  };
+}
+
+function buildFarmPlan(p: Proto, cat: string, chains: string[]): string[] {
   const steps: string[] = [];
-  const name = String(p.name || p.slug || "protocol");
-  const chains = Array.isArray(p.chains) ? p.chains.slice(0, 3) : [];
-  steps.push(`Track ${name} on DefiLlama and its official docs/X for a token announcement or points program.`);
-  if (chains.length) steps.push(`Bridge/position liquidity on ${chains.join(", ")} to interact with ${name} before any snapshot.`);
-  else steps.push(`Position liquidity on the chain(s) ${name} runs on before any points snapshot.`);
-  if (parts.tvl > 0) steps.push(`Provide liquidity or lend/borrow on ${name} (TVL ~$${Math.round(parts.tvl).toLocaleString()}) to earn exposure and potential airdrop weight.`);
-  steps.push(`Check for a points/quest program; complete on-chain actions weekly and keep a wallet log.`);
-  steps.push(`Watch for a governance forum or Snapshot vote that precedes a token launch; vote if eligible.`);
-  if (value >= 15) steps.push(`High implied value (${value}): consider dedicated wallets and sustained volume, not one-off transactions.`);
-  else steps.push(`Moderate implied value (${value}): farm with a small, diversified allocation.`);
+  const primary = chains[0] || "Ethereum";
+  steps.push(`Bridge/seed capital on ${primary} and keep a small gas reserve.`);
+  if (/lending|cdp/i.test(cat)) {
+    steps.push("Supply a blue-chip asset and borrow stables to build a position that survives a points snapshot.");
+    steps.push("Loop conservatively (≤2x) to raise exposure without liquidation risk.");
+  } else if (/dex|amm/i.test(cat)) {
+    steps.push("Provide liquidity in the deepest stable or blue-chip pair to earn fees plus any points.");
+    steps.push("Track volume-based incentives; rotate into the pair the team signals for the snapshot.");
+  } else if (/yield|vault|farm/i.test(cat)) {
+    steps.push("Deposit into the flagship vault and hold through the snapshot window.");
+    steps.push("Diversify across 2–3 vaults to hedge a single strategy's risk.");
+  } else if (/perps|derivative/i.test(cat)) {
+    steps.push("Trade small, consistent volume on the flagship market to accrue volume-based points.");
+    steps.push("Keep leverage low and use limit orders to avoid slippage.");
+  } else if (/bridge|cross-chain/i.test(cat)) {
+    steps.push("Route a modest amount of volume through the bridge in both directions.");
+    steps.push("Repeat across chains to hit any multi-chain eligibility criteria.");
+  } else {
+    steps.push("Use the protocol's flagship product with consistent, modest volume.");
+    steps.push("Follow the team's docs/X for snapshot announcements and eligibility rules.");
+  }
+  steps.push("Keep an on-chain history (txs, deposits) from a fresh wallet you control.");
+  steps.push("Watch for an official points/airdrop program and register early if one opens.");
   return steps;
 }
 
-function slugify(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "protocol";
+function buildDetail(p: Proto, tvl: number, implied: number, cat: string, chains: string[]): string {
+  const parts: string[] = [];
+  parts.push(`${p.name} is a ${cat.toLowerCase()} protocol tracked by DefiLlama with $${fmt(tvl)} in TVL and no live token.`);
+  if (chains.length) parts.push(`It runs on ${chains.join(", ")}.`);
+  if (p.description) parts.push(String(p.description));
+  parts.push(`At a category-typical multiple, a launch could be worth roughly $${fmt(implied)} in implied value — making it a candidate for a points or airdrop campaign.`);
+  return parts.join(" ");
 }
 
-function esc(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+function slugify(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+function fmt(n: number): string {
+  if (n >= 1e9) return (n / 1e9).toFixed(2) + "B";
+  if (n >= 1e6) return (n / 1e6).toFixed(2) + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(2) + "K";
+  return n.toFixed(2);
 }
 
 function main() {
-  const snap = findSnapshot();
-  const all = asArray(snap);
-  const rows: AnyRec[] = [];
-  const seen = new Set<string>();
-  for (const p of all) {
-    if (!p || typeof p !== "object") continue;
-    const name = String(p.name || p.slug || p.id || "");
-    if (!name) continue;
-    const slug = slugify(String(p.slug || name));
-    if (seen.has(slug)) continue;
-    seen.add(slug);
-    if (hasToken(p)) continue;
-    if (isWrappedOrStaked(p)) continue;
-    const { value, parts } = score(p);
-    rows.push({
-      rank: 0,
-      slug,
-      name,
-      category: String(p.category || p.categories || "Unknown"),
-      chains: Array.isArray(p.chains) ? p.chains : [],
-      tvl: Math.round(parts.tvl),
-      revenue: Math.round(parts.rev),
-      impliedValue: value,
-      scoreParts: parts,
-      farmPlan: farmPlan(p, value, parts),
-      url: `https://defillama.com/protocol/${encodeURIComponent(String(p.slug || name))}`,
-    });
+  mkdirSync(OUT, { recursive: true });
+  const protocols = loadProtocols();
+  const rows: Row[] = [];
+  for (const p of protocols) {
+    const r = scoreProtocol(p);
+    if (r) rows.push(r);
   }
-  rows.sort((a, b) => b.impliedValue - a.impliedValue || b.tvl - a.tvl);
+  rows.sort((a, b) => b.impliedValue - a.impliedValue);
   rows.forEach((r, i) => (r.rank = i + 1));
 
-  mkdirSync(OUT, { recursive: true });
   const board = {
     generatedAt: new Date().toISOString(),
-    source: "DefiLlama sealed snapshot",
-    totalProtocols: all.length,
+    totalProtocols: protocols.length,
     tokenlessCount: rows.length,
     rows,
   };
   writeFileSync(join(OUT, "board.json"), JSON.stringify(board, null, 2));
 
-  // dashboard
-  const dash = join(OUT, "dashboard");
-  mkdirSync(dash, { recursive: true });
-  const rowsJson = JSON.stringify(rows);
-  const html = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  // dashboard data + static page
+  const dashDir = join(OUT, "dashboard");
+  mkdirSync(dashDir, { recursive: true });
+  writeFileSync(join(dashDir, "board.json"), JSON.stringify(board, null, 2));
+  writeFileSync(join(dashDir, "index.html"), renderDashboard(board));
+
+  // also mirror into repo dashboard/ if present
+  const repoDash = join(__dirname, "dashboard");
+  if (existsSync(repoDash)) {
+    writeFileSync(join(repoDash, "board.json"), JSON.stringify(board, null, 2));
+    writeFileSync(join(repoDash, "index.html"), renderDashboard(board));
+  }
+
+  console.log(`Wrote ${rows.length} tokenless protocols to ${OUT}/board.json and ${dashDir}/index.html`);
+}
+
+function renderDashboard(board: { generatedAt: string; totalProtocols: number; tokenlessCount: number; rows: Row[] }): string {
+  const data = JSON.stringify(board.rows).replace(/</g, "\\u003c");
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Token Launch Radar</title>
 <style>
-:root{--bg:#0b0f14;--panel:#121a23;--line:#1f2b38;--txt:#e6edf3;--mut:#8b98a5;--acc:#3fb950;--hot:#f0883e}
-*{box-sizing:border-box}body{margin:0;font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--txt)}
-header{padding:18px 22px;border-bottom:1px solid var(--line);display:flex;gap:16px;align-items:baseline;flex-wrap:wrap}
-h1{font-size:20px;margin:0}h1 span{color:var(--acc)}.sub{color:var(--mut);font-size:12px}
-main{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:0;height:calc(100vh - 62px)}
-#list{overflow:auto;border-right:1px solid var(--line)}
-#detail{overflow:auto;padding:18px 22px}
-.bar{position:sticky;top:0;background:var(--bg);padding:10px 14px;border-bottom:1px solid var(--line);display:flex;gap:8px;flex-wrap:wrap;z-index:2}
-input,select{background:var(--panel);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:7px 9px;font:inherit}
-input{flex:1;min-width:120px}
-table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);font-size:13px}
-th{color:var(--mut);font-weight:600;position:sticky;top:52px;background:var(--bg);z-index:1}
-tr.row{cursor:pointer}tr.row:hover{background:#16202b}tr.sel{background:#1b2a38}
-.rk{color:var(--mut);width:44px}.val{color:var(--hot);font-weight:700;text-align:right}
-.tag{display:inline-block;background:#1b2a38;border-radius:4px;padding:1px 7px;font-size:11px;color:var(--mut);margin-right:4px}
-h2{margin:0 0 4px;font-size:22px}.muted{color:var(--mut)}
-.kv{display:grid;grid-template-columns:130px 1fr;gap:6px 12px;margin:14px 0}
-.kv div:nth-child(odd){color:var(--mut)}
-ol{padding-left:20px}ol li{margin:6px 0}
-a{color:#58a6ff}
-.pill{background:var(--acc);color:#04140a;border-radius:999px;padding:2px 10px;font-weight:700;font-size:12px}
-</style></head><body>
-<header><h1>Token Launch <span>Radar</span></h1><div class="sub" id="meta"></div></header>
-<main>
-<div id="list"><div class="bar">
-<input id="q" placeholder="Search protocol, category, chain…" autocomplete="off">
-<select id="cat"><option value="">All categories</option></select>
-<select id="chain"><option value="">All chains</option></select>
-<select id="sort"><option value="value">Sort: implied value</option><option value="tvl">Sort: TVL</option><option value="name">Sort: name</option></select>
+:root{--bg:#0b0f14;--panel:#131a22;--line:#22303d;--fg:#e6edf3;--muted:#8b9bb0;--accent:#4ade80;--accent2:#38bdf8}
+*{box-sizing:border-box}body{margin:0;font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--fg)}
+header{padding:20px 24px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}
+h1{font-size:20px;margin:0}h1 span{color:var(--accent)}
+.meta{color:var(--muted);font-size:12px}
+.controls{display:flex;gap:8px;flex-wrap:wrap;padding:16px 24px;border-bottom:1px solid var(--line)}
+input,select{background:var(--panel);border:1px solid var(--line);color:var(--fg);padding:8px 10px;border-radius:8px;font:inherit}
+input{flex:1;min-width:200px}
+main{display:grid;grid-template-columns:1.4fr 1fr;gap:0;min-height:calc(100vh - 140px)}
+@media(max-width:900px){main{grid-template-columns:1fr}}
+.board{overflow:auto;max-height:calc(100vh - 140px);border-right:1px solid var(--line)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line)}
+th{position:sticky;top:0;background:var(--panel);color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em;cursor:pointer}
+tr.row{cursor:pointer}tr.row:hover{background:#18222d}tr.row.active{background:#1b2a38}
+.rank{color:var(--muted);font-variant-numeric:tabular-nums}
+.val{color:var(--accent);font-variant-numeric:tabular-nums;font-weight:600}
+.tvl{color:var(--accent2);font-variant-numeric:tabular-nums}
+.cat{color:var(--muted);font-size:12px}
+.detail{padding:20px 24px;overflow:auto;max-height:calc(100vh - 140px)}
+.detail h2{margin:0 0 4px;font-size:18px}
+.detail .sub{color:var(--muted);font-size:12px;margin-bottom:16px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.stat .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+.stat .v{font-size:16px;font-weight:600;margin-top:2px}
+h3{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:18px 0 8px}
+ul{margin:0;padding-left:18px}li{margin:4px 0}
+.pill{display:inline-block;background:#1b2a38;border:1px solid var(--line);border-radius:999px;padding:2px 8px;margin:2px 4px 2px 0;font-size:11px;color:var(--muted)}
+.empty{color:var(--muted);padding:24px}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Token Launch <span>Radar</span></h1>
+    <div class="meta" id="meta"></div>
+  </div>
+  <div class="meta">Tokenless protocols ranked by implied launch value</div>
+</header>
+<div class="controls">
+  <input id="q" placeholder="Filter by name, category or chain…">
+  <select id="cat"><option value="">All categories</option></select>
+  <select id="chain"><option value="">All chains</option></select>
 </div>
-<table><thead><tr><th>#</th><th>Protocol</th><th>Category</th><th style="text-align:right">Implied</th></tr></thead><tbody id="tb"></tbody></table></div>
-<div id="detail"><p class="muted">Select a protocol to see its detail view and farm plan.</p></div>
+<main>
+  <div class="board">
+    <table>
+      <thead><tr>
+        <th data-k="rank">#</th>
+        <th data-k="name">Protocol</th>
+        <th data-k="category">Category</th>
+        <th data-k="tvl">TVL</th>
+        <th data-k="impliedValue">Implied value</th>
+      </tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+  <div class="detail" id="detail"><div class="empty">Select a protocol to see its detail view and farm plan.</div></div>
 </main>
 <script>
-const ROWS=${rowsJson};
-const $=s=>document.querySelector(s);
-const cats=[...new Set(ROWS.map(r=>r.category))].sort();
-const chains=[...new Set(ROWS.flatMap(r=>r.chains))].sort();
-cats.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;$('#cat').append(o)});
-chains.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;$('#chain').append(o)});
-$('#meta').textContent=ROWS.length+' tokenless protocols ranked by implied launch value';
-function fmt(n){return n>=1e9?(n/1e9).toFixed(2)+'B':n>=1e6?(n/1e6).toFixed(2)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':String(n)}
+const ROWS = ${data};
+const $ = (s) => document.querySelector(s);
+const fmt = (n) => n>=1e9?(n/1e9).toFixed(2)+'B':n>=1e6?(n/1e6).toFixed(2)+'M':n>=1e3?(n/1e3).toFixed(2)+'K':n.toFixed(2);
+const esc = (s) => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let sortKey='impliedValue', sortDir=-1, active=null;
+const cats = [...new Set(ROWS.map(r=>r.category))].sort();
+const chains = [...new Set(ROWS.flatMap(r=>r.chains))].sort();
+$('#cat').innerHTML += cats.map(c=>'<option>'+esc(c)+'</option>').join('');
+$('#chain').innerHTML += chains.map(c=>'<option>'+esc(c)+'</option>').join('');
+$('#meta').textContent = ROWS.length + ' tokenless protocols · generated ' + new Date(${JSON.stringify(board.generatedAt)}).toLocaleString();
 function filtered(){
-  const q=$('#q').value.toLowerCase(),cat=$('#cat').value,ch=$('#chain').value,sort=$('#sort').value;
-  let out=ROWS.filter(r=>{
-    if(cat&&r.category!==cat)return false;
-    if(ch&&!r.chains.includes(ch))return false;
-    if(q){const hay=(r.name+' '+r.category+' '+r.chains.join(' ')).toLowerCase();if(!hay.includes(q))return false}
-    return true;
-  });
-  if(sort==='tvl')out.sort((a,b)=>b.tvl-a.tvl);else if(sort==='name')out.sort((a,b)=>a.name.localeCompare(b.name));else out.sort((a,b)=>b.impliedValue-a.impliedValue);
-  return out;
-}
-function render(){
-  const rows=filtered(),tb=$('#tb');tb.innerHTML='';
-  rows.forEach(r=>{
-    const tr=document.createElement('tr');tr.className='row';tr.dataset.slug=r.slug;
-    tr.innerHTML='<td class="rk">'+r.rank+'</td><td><strong>'+r.name+'</strong></td><td><span class="tag">'+r.category+'</span></td><td class="val">'+r.impliedValue.toFixed(1)+'</td>';
-    tr.onclick=()=>{document.querySelectorAll('tr.sel').forEach(x=>x.classList.remove('sel'));tr.classList.add('sel');show(r)};
-    tb.append(tr);
-  });
-  if(!rows.length)tb.innerHTML='<tr><td colspan="4" class="muted" style="padding:20px">No protocols match this filter.</td></tr>';
-}
-function show(r){
-  const d=$('#detail');
-  d.innerHTML='<h2>'+r.name+' <span class="pill">#'+r.rank+'</span></h2>'+
-   '<div class="muted">'+r.category+' · '+r.chains.join(', ')+'</div>'+
-   '<div class="kv">'+
-   '<div>Implied value</div><div><strong style="color:var(--hot)">'+r.impliedValue.toFixed(2)+'</strong></div>'+
-   '<div>TVL</div><div>$'+fmt(r.tvl)+'</div>'+
-   '<div>Revenue / fees</div><div>$'+fmt(r.revenue)+'</div>'+
-   '<div>Chains</div><div>'+r.chains.length+'</div>'+
-   '<div>DefiLlama</div><div><a href="'+r.url+'" target="_blank" rel="noopener">'+r.url+'</a></div>'+
-   '</div><h3>Farm plan</h3><ol>'+r.farmPlan.map(s=>'<li>'+s+'</li>').join('')+'</ol>';
-}
-['q','cat','chain','sort'].forEach(id=>$('#'+id).addEventListener('input',render));
-render();
-</script></body></html>`;
-  writeFileSync(join(dash, "index.html"), html);
-
-  // dossier
-  const dossier = {
-    format: "makefun-board/1",
-    generatedAt: board.generatedAt,
-    summary: {
-      protocolsScanned: all.length,
-      tokenless: rows.length,
-      topImpliedValue: rows[0]?.impliedValue ?? 0,
-      medianTvl: rows.length ? rows.map((r) => r.tvl).sort((a, b) => a - b)[Math.floor(rows.length / 2)] : 0,
-    },
-    methodology: {
-      detection: "A protocol is tokenless when no token/symbol/gecko/cmc field is set, and it is not a wrapped, staked, restaked or bridged product (name, category, description or parentProtocol).",
-      scoring: "impliedValue = 9*log10(1+TVL) + 12*log10(1+revenue) + 0.6*min(chains,20) + maturity(age).",
-    },
-    rows: rows.map((r) => ({ rank: r.rank, name: r.name, slug: r.slug, impliedValue: r.impliedValue, tvl: r.tvl, revenue: r.revenue, farmPlan: r.farmPlan })),
-  };
-  writeFileSync(join(OUT, "dossier.json"), JSON.stringify(dossier, null, 2));
-
-  console.log(`Scanned ${all.length} protocols; ${rows.length} tokenless; top: ${rows[0]?.name ?? "none"} (${rows[0]?.impliedValue ?? 0})`);
-}
-
-main();
+  const q=$('#q').value.toLowerCase(), c=$('#cat').value, ch=$('#chain').value;
+  return ROWS.filter(r=>{
+    if(c && r.category!==c) return false;
+    if(ch && !r.chains.includes(ch)) return false;
+    if(q && !(r.name.toLowerCase().includes(q)||r.category.toLowerCase().includes(q)||r.chains.join(' '
