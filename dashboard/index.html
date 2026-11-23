@@ -5,318 +5,297 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Token Launch Radar</title>
 <style>
-:root{--bg:#0b0f14;--panel:#121821;--panel2:#182231;--line:#243044;--txt:#e6edf6;--dim:#8b9bb4;--acc:#3ddc97;--acc2:#5aa9ff;--warn:#ffb454;--bad:#ff6b6b}
+:root{--bg:#0b0f14;--panel:#121821;--panel2:#0f141c;--line:#1e2836;--txt:#dbe4ee;--dim:#7d8b9e;--acc:#3ddc97;--acc2:#5aa9ff;--warn:#ffb454;--hot:#ff5c7a}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.45 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-header{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:12px;align-items:center;background:linear-gradient(180deg,#101722,#0b0f14)}
-h1{font-size:19px;margin:0;letter-spacing:.3px}
+body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+header{padding:14px 20px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:16px;align-items:baseline;background:linear-gradient(180deg,#101722,#0b0f14)}
+h1{font-size:18px;margin:0;letter-spacing:.5px}
 h1 span{color:var(--acc)}
-.sub{color:var(--dim);font-size:12px}
-.spacer{flex:1}
-.stats{display:flex;gap:10px;flex-wrap:wrap}
-.stat{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:12px;color:var(--dim)}
-.stat b{color:var(--txt);font-size:14px;display:block}
-main{display:grid;grid-template-columns:minmax(0,1fr) 420px;gap:0;height:calc(100vh - 74px)}
-@media(max-width:900px){main{grid-template-columns:1fr;height:auto}}
-.left{overflow:auto;padding:14px 16px}
-.right{border-left:1px solid var(--line);overflow:auto;padding:16px;background:var(--panel)}
-.filters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center}
-input,select{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:7px;padding:7px 9px;font:inherit;font-size:13px}
-input[type=search]{min-width:220px}
-input[type=range]{padding:0;accent-color:var(--acc)}
-label.f{font-size:12px;color:var(--dim);display:flex;align-items:center;gap:6px}
+.meta{color:var(--dim);font-size:12px}
+.wrap{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:0;height:calc(100vh - 58px)}
+@media(max-width:900px){.wrap{grid-template-columns:1fr;height:auto}}
+.left{overflow:auto;border-right:1px solid var(--line)}
+.right{overflow:auto;background:var(--panel2)}
+.controls{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+input,select,button{background:var(--panel);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:6px 9px;font:inherit;font-size:13px}
+input{min-width:180px;flex:1}
+button{cursor:pointer}
+button:hover{border-color:var(--acc)}
+button.on{background:var(--acc);color:#04120b;border-color:var(--acc);font-weight:700}
 table{width:100%;border-collapse:collapse;font-size:13px}
-th{position:sticky;top:0;background:var(--bg);text-align:left;color:var(--dim);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;padding:8px 8px;border-bottom:1px solid var(--line);cursor:pointer;user-select:none;white-space:nowrap}
-th:hover{color:var(--txt)}
-td{padding:8px;border-bottom:1px solid #1a2331;vertical-align:top}
+th{position:sticky;top:52px;background:var(--panel);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);color:var(--dim);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.6px;cursor:pointer;z-index:4}
+td{padding:7px 10px;border-bottom:1px solid #151d28;vertical-align:top}
 tr.row{cursor:pointer}
-tr.row:hover{background:#141c28}
-tr.row.sel{background:#16263a;box-shadow:inset 3px 0 0 var(--acc)}
-.rank{color:var(--dim);font-variant-numeric:tabular-nums;width:34px}
-.name{font-weight:600}
+tr.row:hover td{background:#141c27}
+tr.row.sel td{background:#15241d;box-shadow:inset 3px 0 0 var(--acc)}
+.rk{color:var(--dim);width:34px}
+.name{color:var(--txt);font-weight:600}
 .cat{color:var(--dim);font-size:11px}
-.val{font-variant-numeric:tabular-nums;color:var(--acc);font-weight:600;white-space:nowrap}
-.score{font-variant-numeric:tabular-nums;white-space:nowrap}
-.bar{height:5px;background:#1d2838;border-radius:3px;overflow:hidden;margin-top:4px;min-width:60px}
-.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--acc2),var(--acc))}
-.tag{display:inline-block;font-size:10px;padding:1px 6px;border-radius:10px;border:1px solid var(--line);color:var(--dim);margin:1px 3px 1px 0}
-.tag.hi{color:var(--acc);border-color:#1f5c43}
-.tag.mid{color:var(--warn);border-color:#5c4a1f}
-.tag.lo{color:var(--bad);border-color:#5c2323}
-.empty{color:var(--dim);padding:30px;text-align:center}
+.val{color:var(--acc);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.sc{text-align:right;font-variant-numeric:tabular-nums;color:var(--acc2)}
+.badge{display:inline-block;font-size:10px;padding:1px 6px;border-radius:10px;border:1px solid var(--line);color:var(--dim);margin-left:6px}
+.badge.hi{color:var(--hot);border-color:#4a2230}
+.badge.md{color:var(--warn);border-color:#4a3a20}
+.detail{padding:18px 20px}
 .detail h2{margin:0 0 2px;font-size:20px}
-.detail .meta{color:var(--dim);font-size:12px;margin-bottom:12px}
-.kv{display:grid;grid-template-columns:130px 1fr;gap:6px 10px;font-size:13px;margin-bottom:14px}
-.kv div:nth-child(odd){color:var(--dim)}
-.section{border-top:1px solid var(--line);padding-top:12px;margin-top:12px}
-.section h3{font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--dim);margin:0 0 8px}
+.detail .sub{color:var(--dim);font-size:12px;margin-bottom:14px}
+.kv{display:grid;grid-template-columns:150px 1fr;gap:6px 12px;margin:12px 0;font-size:13px}
+.kv dt{color:var(--dim)}
+.kv dd{margin:0}
+.sec{margin-top:18px;border-top:1px solid var(--line);padding-top:12px}
+.sec h3{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.7px;color:var(--acc2)}
 ol.steps{margin:0;padding-left:20px}
-ol.steps li{margin-bottom:8px}
-ol.steps li b{color:var(--acc2)}
-.why{color:var(--dim);font-size:12px;margin-top:4px}
-.pill{display:inline-block;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:3px 8px;font-size:12px;margin:0 6px 6px 0}
-.big{font-size:26px;color:var(--acc);font-weight:700;font-variant-numeric:tabular-nums}
-.hint{color:var(--dim);font-size:12px;margin:6px 0 0}
+ol.steps li{margin:6px 0}
+.pill{display:inline-block;background:#16202c;border:1px solid var(--line);border-radius:5px;padding:2px 7px;margin:2px 4px 2px 0;font-size:11px;color:var(--dim)}
+.bar{height:6px;background:#16202c;border-radius:3px;overflow:hidden;margin-top:4px}
+.bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--acc2),var(--acc))}
+.empty{color:var(--dim);padding:40px 20px;text-align:center}
 a{color:var(--acc2)}
-.close{float:right;background:none;border:1px solid var(--line);color:var(--dim);border-radius:6px;padding:3px 8px;cursor:pointer}
-.close:hover{color:var(--txt)}
+.note{color:var(--dim);font-size:11px;margin-top:6px}
 </style>
 </head>
 <body>
 <header>
-  <div>
-    <h1>Token Launch <span>Radar</span></h1>
-    <div class="sub">Protocols DefiLlama tracks that still have no token &middot; ranked by what a launch would be worth</div>
-  </div>
-  <div class="spacer"></div>
-  <div class="stats" id="stats"></div>
+  <h1>Token Launch <span>Radar</span></h1>
+  <div class="meta" id="meta">loading board…</div>
 </header>
-<main>
+<div class="wrap">
   <section class="left">
-    <div class="filters">
-      <input type="search" id="q" placeholder="Search protocol, chain, category…">
-      <select id="cat"><option value="">All categories</option></select>
-      <select id="chain"><option value="">All chains</option></select>
-      <select id="sort">
-        <option value="value">Sort: implied value</option>
-        <option value="score">Sort: launch score</option>
-        <option value="tvl">Sort: TVL</option>
-        <option value="name">Sort: name</option>
-      </select>
-      <label class="f">Min score <input type="range" id="minScore" min="0" max="100" value="0" step="5"><span id="minScoreV">0</span></label>
-      <label class="f"><input type="checkbox" id="hideWrapped" checked> Exclude wrapped/staked</label>
-      <button class="close" id="reset" style="float:none">Reset</button>
+    <div class="controls">
+      <input id="q" placeholder="search protocol, chain, category…" autocomplete="off">
+      <select id="cat"><option value="">all categories</option></select>
+      <select id="chain"><option value="">all chains</option></select>
+      <select id="tier"><option value="">all tiers</option><option value="high">high conviction</option><option value="mid">mid</option><option value="low">speculative</option></select>
+      <button id="reset">reset</button>
+      <span class="meta" id="count"></span>
     </div>
-    <div id="count" class="sub" style="margin-bottom:8px"></div>
     <table>
       <thead><tr>
         <th data-k="rank">#</th>
         <th data-k="name">Protocol</th>
-        <th data-k="tvl">TVL</th>
-        <th data-k="value">Implied value</th>
-        <th data-k="score">Launch score</th>
-        <th data-k="chains">Chains</th>
+        <th data-k="category">Category</th>
+        <th data-k="chains">Chain</th>
+        <th data-k="impliedValueUsd" class="val">Implied value</th>
+        <th data-k="score" class="sc">Score</th>
       </tr></thead>
       <tbody id="rows"></tbody>
     </table>
-    <div id="empty" class="empty" style="display:none">No protocols match these filters.</div>
   </section>
-  <aside class="right" id="detail">
-    <div class="empty">Select a protocol to see its launch case and farm plan.</div>
-  </aside>
-</main>
+  <aside class="right" id="detail"><div class="empty">Select a protocol to see its launch case and farm plan.</div></aside>
+</div>
 <script>
 (function(){
-"use strict";
-var BOARD = window.__BOARD__ || null;
-var rows = [], byId = {}, selected = null;
+  "use strict";
+  var DATA = window.__RADAR__ || null;
+  var state = {q:"", cat:"", chain:"", tier:"", sort:"rank", dir:1, sel:null};
+  var $ = function(id){return document.getElementById(id);};
 
-function fmtUsd(n){
-  if(n==null||isNaN(n)) return "—";
-  var a=Math.abs(n);
-  if(a>=1e9) return "$"+(n/1e9).toFixed(2)+"B";
-  if(a>=1e6) return "$"+(n/1e6).toFixed(2)+"M";
-  if(a>=1e3) return "$"+(n/1e3).toFixed(1)+"K";
-  return "$"+Math.round(n);
-}
-function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c];});}
-function scoreClass(s){return s>=70?"hi":s>=45?"mid":"lo";}
+  function fmtUsd(n){
+    if(n==null||isNaN(n)) return "—";
+    if(n>=1e9) return "$"+(n/1e9).toFixed(2)+"B";
+    if(n>=1e6) return "$"+(n/1e6).toFixed(2)+"M";
+    if(n>=1e3) return "$"+(n/1e3).toFixed(1)+"K";
+    return "$"+Math.round(n);
+  }
+  function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
+  function chainsOf(r){
+    if(Array.isArray(r.chains)) return r.chains;
+    if(typeof r.chains==="string") return r.chains.split(/[,;|]/).map(function(s){return s.trim();}).filter(Boolean);
+    return r.chain?[r.chain]:[];
+  }
+  function tierOf(r){
+    var s = r.score||0;
+    if(r.tier) return r.tier;
+    return s>=70?"high":s>=45?"mid":"low";
+  }
+  function farmSteps(r){
+    var p = r.farmPlan||r.farm||null;
+    if(Array.isArray(p)) return p;
+    if(p && Array.isArray(p.steps)) return p.steps;
+    if(typeof p==="string") return p.split(/\n+/).filter(Boolean);
+    return [];
+  }
 
-function normalize(raw){
-  var list = Array.isArray(raw)?raw:(raw&&Array.isArray(raw.protocols)?raw.protocols:(raw&&Array.isArray(raw.board)?raw.board:[]));
-  return list.map(function(p,i){
-    var tvl = num(p.tvl!=null?p.tvl:p.tvlUsd);
-    var value = num(p.impliedValue!=null?p.impliedValue:(p.value!=null?p.value:p.implied_value));
-    var score = num(p.launchScore!=null?p.launchScore:(p.score!=null?p.score:p.launch_score));
-    var chains = p.chains||p.chainsList||(p.chain?[p.chain]:[]);
-    if(typeof chains==="string") chains=chains.split(/[,;]\s*/);
-    return {
-      id: p.id||p.slug||p.name||("p"+i),
-      name: p.name||p.protocol||p.id||("Protocol "+i),
-      category: p.category||p.cat||"Uncategorized",
-      chains: chains.filter(Boolean),
-      tvl: tvl,
-      value: value,
-      score: score,
-      wrapped: !!(p.wrapped||p.isWrapped||p.staked||p.isStaked||p.wrappedOrStaked),
-      why: p.why||p.rationale||p.reason||"",
-      farm: p.farm||p.farmPlan||p.plan||[],
-      url: p.url||p.defillama||"",
-      mcap: num(p.mcap||p.marketCap||p.fdv),
-      volume: num(p.volume||p.volume24h),
-      fees: num(p.fees||p.fees24h),
-      raw: p
+  function load(){
+    if(DATA && Array.isArray(DATA.rows)){ init(DATA); return; }
+    // Fallback: fetch board.json relative to the page (works when served over http).
+    var xhr = new XMLHttpRequest();
+    xhr.open("GET","../board.json",true);
+    xhr.onload = function(){
+      try{
+        var j = JSON.parse(xhr.responseText);
+        init(Array.isArray(j)?{rows:j}:j);
+      }catch(e){ fail("board.json could not be parsed: "+e.message); }
     };
-  });
-}
-function num(v){ if(v==null) return null; if(typeof v==="number") return isFinite(v)?v:null; var n=parseFloat(String(v).replace(/[$,]/g,"")); return isFinite(n)?n:null; }
+    xhr.onerror = function(){ fail("No embedded data and board.json is unreachable. Open dashboard/index.html next to board.json."); };
+    xhr.send();
+  }
+  function fail(msg){ $("meta").textContent = msg; $("detail").innerHTML = '<div class="empty">'+esc(msg)+'</div>'; }
 
-function farmSteps(p){
-  var f = p.farm;
-  if(Array.isArray(f) && f.length){
-    return f.map(function(s){
-      if(typeof s==="string") return {title:s,detail:""};
-      return {title:s.title||s.step||s.action||"Step", detail:s.detail||s.desc||s.description||""};
+  function init(d){
+    var rows = d.rows.slice();
+    rows.sort(function(a,b){return (a.rank||0)-(b.rank||0);});
+    rows.forEach(function(r,i){ if(r.rank==null) r.rank=i+1; });
+    window.__ROWS__ = rows;
+    var cats = {}, chs = {};
+    rows.forEach(function(r){
+      if(r.category) cats[r.category]=1;
+      chainsOf(r).forEach(function(c){ if(c) chs[c]=1; });
+    });
+    Object.keys(cats).sort().forEach(function(c){ var o=document.createElement("option"); o.value=c; o.textContent=c; $("cat").appendChild(o); });
+    Object.keys(chs).sort().forEach(function(c){ var o=document.createElement("option"); o.value=c; o.textContent=c; $("chain").appendChild(o); });
+    var gen = d.generatedAt||d.generated_at||"";
+    $("meta").textContent = rows.length+" protocols · snapshot "+(gen?gen.slice(0,19).replace("T"," "):"n/a")+" · ranked by implied launch value";
+    bind();
+    render();
+    if(rows.length) select(rows[0].id||rows[0].slug||rows[0].name);
+  }
+
+  function bind(){
+    $("q").addEventListener("input",function(e){state.q=e.target.value.toLowerCase();render();});
+    $("cat").addEventListener("change",function(e){state.cat=e.target.value;render();});
+    $("chain").addEventListener("change",function(e){state.chain=e.target.value;render();});
+    $("tier").addEventListener("change",function(e){state.tier=e.target.value;render();});
+    $("reset").addEventListener("click",function(){
+      state.q="";state.cat="";state.chain="";state.tier="";state.sort="rank";state.dir=1;
+      $("q").value="";$("cat").value="";$("chain").value="";$("tier").value="";render();
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("th[data-k]"),function(th){
+      th.addEventListener("click",function(){
+        var k=th.getAttribute("data-k");
+        if(state.sort===k) state.dir*=-1; else {state.sort=k;state.dir=1;}
+        render();
+      });
     });
   }
-  // Derive a sensible farm plan from the protocol's own data.
-  var steps=[];
-  steps.push({title:"Bridge or fund on "+(p.chains[0]||"its main chain"), detail:"Keep gas and a stable buffer ready; the protocol lives on "+(p.chains.join(", ")||"one chain")+"."});
-  if(p.tvl!=null) steps.push({title:"Provide liquidity where TVL is deepest", detail:"TVL is "+fmtUsd(p.tvl)+"; LP in the deepest pool to earn points and stay liquid."});
-  steps.push({title:"Check for a points or season program", detail:"Most pre-token protocols run points seasons before launch; farm early and often."});
-  steps.push({title:"Track governance and snapshot signals", detail:"A token usually follows a governance forum post or a snapshot vote; watch the protocol's announcements."});
-  steps.push({title:"Size the position to the implied value", detail:"Implied launch value is "+fmtUsd(p.value)+"; keep exposure proportional to that upside."});
-  return steps;
-}
 
-function renderStats(){
-  var total = rows.length;
-  var sumVal = rows.reduce(function(a,r){return a+(r.value||0);},0);
-  var avg = total?sumVal/total:0;
-  var top = rows.slice().sort(function(a,b){return (b.score||0)-(a.score||0);})[0];
-  document.getElementById("stats").innerHTML =
-    '<div class="stat"><b>'+total+'</b>protocols</div>'+
-    '<div class="stat"><b>'+fmtUsd(sumVal)+'</b>total implied value</div>'+
-    '<div class="stat"><b>'+fmtUsd(avg)+'</b>avg implied value</div>'+
-    '<div class="stat"><b>'+esc(top?top.name:"—")+'</b>top score</div>';
-}
+  function filtered(){
+    var rows = window.__ROWS__;
+    return rows.filter(function(r){
+      if(state.cat && r.category!==state.cat) return false;
+      if(state.chain && chainsOf(r).indexOf(state.chain)<0) return false;
+      if(state.tier && tierOf(r)!==state.tier) return false;
+      if(state.q){
+        var hay = [r.name,r.category,r.description,r.slug].concat(chainsOf(r)).join(" ").toLowerCase();
+        if(hay.indexOf(state.q)<0) return false;
+      }
+      return true;
+    });
+  }
 
-function fillSelect(id, values){
-  var sel=document.getElementById(id);
-  values.sort().forEach(function(v){
-    var o=document.createElement("option"); o.value=v; o.textContent=v; sel.appendChild(o);
-  });
-}
+  function sortRows(rows){
+    var k=state.sort, d=state.dir;
+    var copy = rows.slice();
+    copy.sort(function(a,b){
+      var av,bv;
+      if(k==="chains"){av=chainsOf(a).join(",");bv=chainsOf(b).join(",");}
+      else if(k==="impliedValueUsd"){av=a.impliedValueUsd||0;bv=b.impliedValueUsd||0;}
+      else {av=a[k];bv=b[k];}
+      if(typeof av==="string"||typeof bv==="string"){
+        av=String(av||"").toLowerCase();bv=String(bv||"").toLowerCase();
+        return av<bv?-d:av>bv?d:0;
+      }
+      av=av||0;bv=bv||0;
+      return (av-bv)*d;
+    });
+    return copy;
+  }
 
-function currentFilters(){
-  return {
-    q: document.getElementById("q").value.trim().toLowerCase(),
-    cat: document.getElementById("cat").value,
-    chain: document.getElementById("chain").value,
-    sort: document.getElementById("sort").value,
-    minScore: parseInt(document.getElementById("minScore").value,10)||0,
-    hideWrapped: document.getElementById("hideWrapped").checked
-  };
-}
+  function render(){
+    var rows = sortRows(filtered());
+    var tb = $("rows");
+    var html = "";
+    rows.forEach(function(r){
+      var id = r.id||r.slug||r.name;
+      var t = tierOf(r);
+      html += '<tr class="row'+(state.sel===id?" sel":"")+'" data-id="'+esc(id)+'">'+
+        '<td class="rk">'+esc(r.rank)+'</td>'+
+        '<td><span class="name">'+esc(r.name)+'</span>'+(t==="high"?'<span class="badge hi">hot</span>':t==="mid"?'<span class="badge md">mid</span>':'')+'</td>'+
+        '<td class="cat">'+esc(r.category||"—")+'</td>'+
+        '<td class="cat">'+esc(chainsOf(r).slice(0,2).join(", ")||"—")+'</td>'+
+        '<td class="val">'+fmtUsd(r.impliedValueUsd)+'</td>'+
+        '<td class="sc">'+esc(r.score!=null?Math.round(r.score):"—")+'</td>'+
+      '</tr>';
+    });
+    tb.innerHTML = html || '<tr><td colspan="6" class="empty">No protocols match these filters.</td></tr>';
+    $("count").textContent = rows.length+" shown";
+    Array.prototype.forEach.call(tb.querySelectorAll("tr.row"),function(tr){
+      tr.addEventListener("click",function(){ select(tr.getAttribute("data-id")); });
+    });
+  }
 
-function applyFilters(){
-  var f=currentFilters();
-  var out = rows.filter(function(r){
-    if(f.hideWrapped && r.wrapped) return false;
-    if(f.cat && r.category!==f.cat) return false;
-    if(f.chain && r.chains.indexOf(f.chain)<0) return false;
-    if((r.score||0) < f.minScore) return false;
-    if(f.q){
-      var hay=(r.name+" "+r.category+" "+r.chains.join(" ")).toLowerCase();
-      if(hay.indexOf(f.q)<0) return false;
+  function find(id){
+    var rows = window.__ROWS__||[];
+    for(var i=0;i<rows.length;i++){ if((rows[i].id||rows[i].slug||rows[i].name)===id) return rows[i]; }
+    return null;
+  }
+
+  function select(id){
+    state.sel = id;
+    Array.prototype.forEach.call(document.querySelectorAll("tr.row"),function(tr){
+      tr.classList.toggle("sel", tr.getAttribute("data-id")===id);
+    });
+    var r = find(id);
+    if(!r) return;
+    renderDetail(r);
+  }
+
+  function renderDetail(r){
+    var t = tierOf(r);
+    var steps = farmSteps(r);
+    var chs = chainsOf(r);
+    var maxV = (window.__ROWS__||[]).reduce(function(m,x){return Math.max(m,x.impliedValueUsd||0);},1);
+    var pct = Math.max(2, Math.min(100, ((r.impliedValueUsd||0)/maxV)*100));
+    var h = '<div class="detail">';
+    h += '<h2>'+esc(r.name)+'</h2>';
+    h += '<div class="sub">'+esc(r.category||"uncategorized")+' · '+esc(chs.join(", ")||"chain n/a")+' · rank #'+esc(r.rank)+'</div>';
+    if(r.description) h += '<p>'+esc(r.description)+'</p>';
+    h += '<dl class="kv">';
+    h += '<dt>Implied value</dt><dd class="val" style="text-align:left">'+fmtUsd(r.impliedValueUsd)+'<div class="bar"><i style="width:'+pct.toFixed(1)+'%"></i></div></dd>';
+    h += '<dt>Launch score</dt><dd>'+esc(r.score!=null?Math.round(r.score):"—")+' / 100 <span class="badge '+(t==="high"?"hi":t==="mid"?"md":"")+'">'+esc(t)+'</span></dd>';
+    if(r.tvlUsd!=null) h += '<dt>TVL</dt><dd>'+fmtUsd(r.tvlUsd)+'</dd>';
+    if(r.feesUsd!=null) h += '<dt>Fees (30d)</dt><dd>'+fmtUsd(r.feesUsd)+'</dd>';
+    if(r.revenueUsd!=null) h += '<dt>Revenue (30d)</dt><dd>'+fmtUsd(r.revenueUsd)+'</dd>';
+    if(r.valuationBasis) h += '<dt>Value basis</dt><dd>'+esc(r.valuationBasis)+'</dd>';
+    if(r.tokenStatus) h += '<dt>Token status</dt><dd>'+esc(r.tokenStatus)+'</dd>';
+    if(r.whyNoToken) h += '<dt>Why no token</dt><dd>'+esc(r.whyNoToken)+'</dd>';
+    h += '</dl>';
+    if(Array.isArray(r.signals)&&r.signals.length){
+      h += '<div class="sec"><h3>Signals</h3>';
+      r.signals.forEach(function(s){ h += '<span class="pill">'+esc(s)+'</span>'; });
+      h += '</div>';
     }
-    return true;
-  });
-  out.sort(function(a,b){
-    if(f.sort==="name") return a.name.localeCompare(b.name);
-    if(f.sort==="tvl") return (b.tvl||0)-(a.tvl||0);
-    if(f.sort==="score") return (b.score||0)-(a.score||0);
-    return (b.value||0)-(a.value||0);
-  });
-  return out;
-}
-
-function renderTable(){
-  var list=applyFilters();
-  var tb=document.getElementById("rows");
-  var maxVal = list.reduce(function(m,r){return Math.max(m,r.value||0);},0)||1;
-  tb.innerHTML = list.map(function(r,i){
-    var pct = Math.round(((r.value||0)/maxVal)*100);
-    var cls = scoreClass(r.score||0);
-    return '<tr class="row'+(selected===r.id?' sel':'')+'" data-id="'+esc(r.id)+'">'+
-      '<td class="rank">'+(i+1)+'</td>'+
-      '<td><div class="name">'+esc(r.name)+'</div><div class="cat">'+esc(r.category)+'</div></td>'+
-      '<td class="score">'+fmtUsd(r.tvl)+'</td>'+
-      '<td><div class="val">'+fmtUsd(r.value)+'</div><div class="bar"><i style="width:'+pct+'%"></i></div></td>'+
-      '<td><span class="tag '+cls+'">'+(r.score!=null?Math.round(r.score):"—")+'</span></td>'+
-      '<td class="cat">'+esc(r.chains.slice(0,3).join(", "))+(r.chains.length>3?" +"+(r.chains.length-3):"")+'</td>'+
-    '</tr>';
-  }).join("");
-  document.getElementById("count").textContent = "Showing "+list.length+" of "+rows.length+" protocols";
-  document.getElementById("empty").style.display = list.length?"none":"block";
-  Array.prototype.forEach.call(tb.querySelectorAll("tr.row"),function(tr){
-    tr.addEventListener("click",function(){ select(tr.getAttribute("data-id")); });
-  });
-}
-
-function renderDetail(r){
-  var el=document.getElementById("detail");
-  if(!r){ el.innerHTML='<div class="empty">Select a protocol to see its launch case and farm plan.</div>'; return; }
-  var steps=farmSteps(r);
-  var tags = r.chains.map(function(c){return '<span class="pill">'+esc(c)+'</span>';}).join("");
-  var why = r.why ? '<div class="section"><h3>Why it would be worth a launch</h3><div>'+esc(r.why)+'</div></div>' : "";
-  var links = r.url ? '<div class="section"><h3>Source</h3><a href="'+esc(r.url)+'" target="_blank" rel="noopener">'+esc(r.url)+'</a></div>' : "";
-  el.innerHTML =
-    '<div class="detail">'+
-      '<button class="close" id="closeDetail">Close</button>'+
-      '<h2>'+esc(r.name)+'</h2>'+
-      '<div class="meta">'+esc(r.category)+(r.wrapped?' &middot; wrapped/staked product':' &middot; no token yet')+'</div>'+
-      '<div class="big">'+fmtUsd(r.value)+'</div>'+
-      '<div class="sub" style="margin-bottom:12px">implied launch value</div>'+
-      '<div class="kv">'+
-        '<div>Launch score</div><div><span class="tag '+scoreClass(r.score||0)+'">'+(r.score!=null?Math.round(r.score):"—")+' / 100</span></div>'+
-        '<div>TVL</div><div>'+fmtUsd(r.tvl)+'</div>'+
-        (r.mcap!=null?'<div>Market cap / FDV</div><div>'+fmtUsd(r.mcap)+'</div>':'')+
-        (r.volume!=null?'<div>24h volume</div><div>'+fmtUsd(r.volume)+'</div>':'')+
-        (r.fees!=null?'<div>24h fees</div><div>'+fmtUsd(r.fees)+'</div>':'')+
-        '<div>Chains</div><div>'+esc(r.chains.join(", ")||"—")+'</div>'+
-      '</div>'+
-      (tags?'<div class="section"><h3>Where it lives</h3>'+tags+'</div>':'')+
-      why+
-      '<div class="section"><h3>How to farm it</h3><ol class="steps">'+
-        steps.map(function(s){
-          return '<li><b>'+esc(s.title)+'</b>'+(s.detail?'<div class="why">'+esc(s.detail)+'</div>':'')+'</li>';
-        }).join("")+
-      '</ol></div>'+
-      links+
-    '</div>';
-  document.getElementById("closeDetail").addEventListener("click",function(){ select(null); });
-}
-
-function select(id){
-  selected = id;
-  renderTable();
-  renderDetail(id?byId[id]:null);
-  if(id){
-    var tr=document.querySelector('tr.row[data-id="'+CSS.escape(id)+'"]');
-    if(tr && tr.scrollIntoView) tr.scrollIntoView({block:"nearest"});
+    if(Array.isArray(r.risks)&&r.risks.length){
+      h += '<div class="sec"><h3>Risks</h3>';
+      r.risks.forEach(function(s){ h += '<span class="pill">'+esc(s)+'</span>'; });
+      h += '</div>';
+    }
+    h += '<div class="sec"><h3>Farm plan</h3>';
+    if(steps.length){
+      h += '<ol class="steps">';
+      steps.forEach(function(s){ h += '<li>'+esc(s)+'</li>'; });
+      h += '</ol>';
+    } else {
+      h += '<div class="note">No farm plan recorded for this protocol.</div>';
+    }
+    if(r.farmPlan && r.farmPlan.expectedValue) h += '<div class="note">Expected value: '+esc(r.farmPlan.expectedValue)+'</div>';
+    h += '</div>';
+    if(Array.isArray(r.links)&&r.links.length){
+      h += '<div class="sec"><h3>Links</h3>';
+      r.links.forEach(function(l){
+        var url = typeof l==="string"?l:(l.url||"");
+        var label = typeof l==="string"?l:(l.label||l.url||"");
+        h += '<div><a href="'+esc(url)+'" target="_blank" rel="noopener">'+esc(label)+'</a></div>';
+      });
+      h += '</div>';
+    }
+    h += '</div>';
+    $("detail").innerHTML = h;
+    $("detail").scrollTop = 0;
   }
-}
 
-function boot(){
-  if(!BOARD){
-    document.getElementById("rows").innerHTML='<tr><td colspan="6" class="empty">No board data loaded. Run main.ts to generate board.json and inject it here.</td></tr>';
-    return;
-  }
-  rows = normalize(BOARD);
-  rows.forEach(function(r){ byId[r.id]=r; });
-  var cats={}, chains={};
-  rows.forEach(function(r){ cats[r.category]=1; r.chains.forEach(function(c){chains[c]=1;}); });
-  fillSelect("cat",Object.keys(cats));
-  fillSelect("chain",Object.keys(chains));
-  renderStats();
-  renderTable();
-  ["q","cat","chain","sort","minScore","hideWrapped"].forEach(function(id){
-    var el=document.getElementById(id);
-    el.addEventListener("input",function(){
-      if(id==="minScore") document.getElementById("minScoreV").textContent=el.value;
-      renderTable();
-    });
-    el.addEventListener("change",renderTable);
-  });
-  document.getElementById("reset").addEventListener("click",function(){
-    document.getElementById("q").value="";
-    document.getElementById("cat").value="";
-    document.getElementById("chain").value="";
-    document.getElementById("sort").value="value";
-    document.getElementById("minScore").value="0";
-    document.getElementById("minScoreV").textContent="0";
-    document.getElementById("hideWrapped").checked=true;
-    renderTable();
-  });
-  Array.prototype.forEach.call(document.querySelectorAll("th[
+  load();
+})();
+</script>
+</body>
+</html>

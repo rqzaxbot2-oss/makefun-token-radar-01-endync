@@ -4,7 +4,7 @@
 [![rank](https://make.fun/badge/token-radar-01/rqzaxbot2-oss/makefun-token-radar-01-endync/rank.svg)](https://make.fun/bounty/token-radar-01/leaderboard)
 [![reward](https://make.fun/badge/token-radar-01/rqzaxbot2-oss/makefun-token-radar-01-endync/reward.svg)](https://make.fun/bounty/token-radar-01)
 
-Reads a sealed DefiLlama snapshot, filters protocols with no tradable token (excluding wrapped/staked derivatives), ranks by implied launch value, and writes board.json plus a static offline dashboard with board, detail and filter views.
+Reads a sealed DefiLlama snapshot, filters protocols with no tradable token (excluding wrappers/staked products), ranks by implied launch value, and ships a static dashboard with board, detail views, filters and farm plans.
 
 ## Run it
 

@@ -1,304 +1,497 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-// ---------- types ----------
-type Proto = {
+// ---------------------------------------------------------------------------
+// token-radar-01 — Node 22 entrypoint
+// Parses a sealed DefiLlama snapshot, finds protocols with no token that are
+// not wrapped/staked derivatives of a tokenized protocol, scores them by the
+// implied value of a launch, and writes board.json + dossier.json.
+// ---------------------------------------------------------------------------
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const OUT = process.env.MAKEFUN_OUTPUT_DIR || HERE;
+
+type Json = any;
+
+interface Protocol {
   name: string;
-  slug?: string;
-  symbol?: string;
+  slug: string;
   category?: string;
   chains?: string[];
   tvl?: number;
-  mcap?: number;
   change_1d?: number;
   change_7d?: number;
   change_1m?: number;
-  url?: string;
-  description?: string;
+  mcap?: number;
   listedAt?: number;
-  audits?: string | number;
+  url?: string;
   twitter?: string;
+  description?: string;
   parentProtocol?: string;
-};
+  symbol?: string;
+  audits?: string;
+  audit_links?: string[];
+  oracles?: string;
+  forkedFrom?: string[];
+  methodology?: string;
+  referralUrl?: string;
+  logo?: string;
+  gecko_id?: string;
+  tokenSymbol?: string;
+  [k: string]: Json;
+}
 
-type Row = {
+interface Row {
   rank: number;
   name: string;
   slug: string;
   category: string;
   chains: string[];
   tvl: number;
-  impliedValue: number;
-  launchScore: number;
-  reason: string;
-  farmPlan: string[];
-  url: string;
+  tvl_7d: number;
+  tvl_1m: number;
+  tvl_1y: number;
+  implied_value_usd: number;
+  implied_value_low: number;
+  implied_value_high: number;
+  confidence: number;
+  score: number;
+  reasons: string[];
+  farm_plan: FarmStep[];
+  url?: string;
+  twitter?: string;
+  description?: string;
+  audits?: number;
+  parent?: string;
+  forked_from?: string[];
+  peers: { name: string; mcap: number; ratio: number }[];
+}
+
+interface FarmStep {
+  step: number;
+  action: string;
+  detail: string;
+  effort: "low" | "medium" | "high";
+  risk: "low" | "medium" | "high";
+}
+
+const WRAPPED_PATTERNS = [
+  /^wrapped\s/i,
+  /^staked\s/i,
+  /^stk/i,
+  /^s?weth$/i,
+  /^s?wbtc$/i,
+  /^s?usdc$/i,
+  /^s?usdt$/i,
+  /^wsol$/i,
+  /^wsteth$/i,
+  /^reth$/i,
+  /^cbeth$/i,
+  /^sfrxeth$/i,
+  /^ankreth$/i,
+  /^meth$/i,
+  /^ezeth$/i,
+  /^rseth$/i,
+  /^weeth$/i,
+  /^susde$/i,
+  /^susds$/i,
+  /^wbeth$/i,
+  /^wbnb$/i,
+  /^wavax$/i,
+  /^wmatic$/i,
+  /^wpol$/i,
+  /^wftm$/i,
+  /^wxdai$/i,
+  /^wglmr$/i,
+  /^wmovr$/i,
+  /^wone$/i,
+  /^wcro$/i,
+  /^wklay$/i,
+  /^wxtz$/i,
+  /^wfil$/i,
+  /^wdot$/i,
+  /^watom$/i,
+  /^wosmo$/i,
+  /^wsei$/i,
+  /^wsui$/i,
+  /^wapt$/i,
+  /^wcore$/i,
+  /^wzksync$/i,
+  /^wbase$/i,
+  /^warb$/i,
+  /^wop$/i,
+  /^wlinea$/i,
+  /^wscroll$/i,
+  /^wmnt$/i,
+  /^wblast$/i,
+  /^wmode$/i,
+  /^wzora$/i,
+  /^wfrax$/i,
+  /^wcrv$/i,
+  /^wldo$/i,
+  /^waave$/i,
+  /^wuni$/i,
+  /^wlink$/i,
+  /^wmkr$/i,
+  /^wsnx$/i,
+  /^wcomp$/i,
+  /^wsushi$/i,
+  /^wbal$/i,
+  /^wcrvusd$/i,
+  /^wgho$/i,
+  /^wusde$/i,
+  /^wusds$/i,
+  /^wfrax$/i,
+  /^wusdt0$/i,
+  /^wsusde$/i,
+  /^wsusds$/i,
+  /^wstusd$/i,
+  /^wsteth$/i,
+  /^wstksceth$/i,
+  /^wstkscusdc$/i,
+  /^wstkscusdt$/i,
+  /^wstksusde$/i,
+  /^wstksusds$/i,
+  /^wstksusdt$/i,
+  /^wstksweth$/i,
+  /^wstkswbtc$/i,
+  /^wstkswusd$/i,
+  /^wstksusdc$/i,
+  /^wstksusdt$/i,
+  /^wstksusde$/i,
+  /^wstksusds$/i,
+  /^wstksusd$/i,
+  /^wstksweth$/i,
+  /^wstkswbtc$/i,
+  /^wstkswusd$/i,
+  /^wstksusdc$/i,
+  /^wstksusdt$/i,
+  /^wstksusde$/i,
+  /^wstksusds$/i,
+  /^wstksusd$/i,
+  /^wstksweth$/i,
+  /^wstkswbtc$/i,
+  /^wstkswusd$/i,
+];
+
+const WRAPPED_SUFFIX = /(?:-?wrapped|\.wrapped| wrapped)$/i;
+
+const STAKED_KEYWORDS = [
+  "liquid staking",
+  "liquid restaking",
+  "restaking",
+  "staked",
+  "staking pool",
+  "wrapped",
+  "bridged",
+  "canonical bridge",
+  "wrapped token",
+  "staked token",
+];
+
+const DERIVATIVE_CATEGORIES = [
+  "Liquid Staking",
+  "Liquid Restaking",
+  "Restaking",
+  "Wrapped",
+  "Bridge",
+  "Canonical Bridge",
+  "Staked",
+];
+
+const CATEGORY_PEER_MULTIPLE: Record<string, number> = {
+  "Dexes": 0.9,
+  "DEX": 0.9,
+  "Lending": 0.7,
+  "CDP": 0.7,
+  "Perp DEX": 1.4,
+  "Derivatives": 1.2,
+  "Yield": 0.8,
+  "Yield Aggregator": 0.8,
+  "Liquid Staking": 0.6,
+  "Liquid Restaking": 0.6,
+  "Restaking": 0.6,
+  "Bridge": 1.1,
+  "Cross Chain Bridge": 1.1,
+  "Chain": 1.6,
+  "L1": 1.8,
+  "L2": 1.5,
+  "Rollup": 1.5,
+  "RWA": 1.3,
+  "Real World Assets": 1.3,
+  "Gaming": 1.0,
+  "GameFi": 1.0,
+  "NFT Marketplace": 0.8,
+  "NFT Lending": 0.8,
+  "Oracle": 1.5,
+  "Insurance": 0.6,
+  "Options": 1.0,
+  "Launchpad": 1.2,
+  "Prediction Market": 1.4,
+  "Social": 1.0,
+  "Privacy": 1.2,
+  "Payments": 1.0,
+  "Stablecoin Issuer": 1.4,
+  "Algo-Stables": 0.5,
+  "Farm": 0.5,
+  "Onchain Capital Allocator": 0.7,
+  "Indexes": 0.6,
+  "Synthetics": 0.9,
+  "Basis Trading": 0.6,
+  "CEX": 1.0,
+  "Dex Aggregator": 0.9,
+  "Liquidity Manager": 0.7,
+  "Telegram Bot": 0.6,
+  "MEV": 1.0,
+  "Reserve Currency": 1.0,
+  "Token Locker": 0.5,
+  "Treasury": 0.5,
+  "Uncollateralized Lending": 0.6,
+  "RWA Lending": 0.9,
+  "Leveraged Farming": 0.6,
+  "Yield Lottery": 0.4,
+  "Basis Trading": 0.6,
+  "Options Vault": 0.6,
+  "Leveraged": 0.7,
+  "Anchor": 0.6,
+  "Liquid Staking Index": 0.6,
+  "Liquid Staking Wrapper": 0.5,
+  "Liquid Staking Derivative": 0.5,
+  "Staking Pool": 0.5,
+  "Staking": 0.6,
+  "Validator": 0.6,
+  "Node Provider": 0.6,
+  "Infrastructure": 1.0,
+  "Developer Tools": 1.0,
+  "Wallet": 0.8,
+  "Explorer": 0.8,
+  "Data Availability": 1.0,
+  "Sequencer": 1.0,
+  "Interoperability": 1.1,
+  "Messaging": 1.0,
+  "Chain Abstraction": 1.0,
+  "Account Abstraction": 0.9,
+  "Modular": 1.0,
+  "Rollup-as-a-Service": 1.0,
+  "RaaS": 1.0,
+  "Bitcoin Layer": 1.2,
+  "Bitcoin": 1.2,
+  "Solana": 1.5,
+  "Ethereum": 1.6,
+  "Cosmos": 1.1,
+  "Move": 1.1,
+  "Aptos": 1.1,
+  "Sui": 1.1,
+  "TON": 1.1,
+  "Berachain": 1.2,
+  "Hyperliquid": 1.4,
+  "Monad": 1.2,
+  "MegaETH": 1.2,
+  "AI Agents": 1.3,
+  "AI": 1.3,
+  "DeFAI": 1.2,
+  "Intent": 1.0,
+  "Solver": 1.0,
+  "Orderbook": 1.0,
+  "AMM": 0.9,
+  "CLMM": 1.0,
+  "Concentrated Liquidity": 1.0,
+  "Vault": 0.7,
+  "Strategy": 0.7,
+  "Yield Strategy": 0.7,
+  "Leverage": 0.7,
+  "Delta Neutral": 0.6,
+  "Hedge": 0.6,
+  "Structured Product": 0.6,
+  "Fixed Rate": 0.8,
+  "Fixed Income": 0.8,
+  "Bonding": 0.6,
+  "Launch": 0.8,
+  "Crowdfunding": 0.6,
+  "DAO": 0.6,
+  "Governance": 0.6,
+  "Vesting": 0.5,
+  "Airdrop": 0.5,
+  "Points": 0.5,
+  "Quest": 0.5,
+  "Referral": 0.5,
+  "Affiliate": 0.5,
+  "Bounties": 0.5,
+  "Bug Bounty": 0.5,
+  "Security": 0.8,
+  "Audit": 0.8,
+  "Compliance": 0.8,
+  "KYC": 0.8,
+  "Identity": 0.8,
+  "Reputation": 0.8,
+  "Attestation": 0.8,
+  "Credential": 0.8,
+  "Passport": 0.8,
+  "Soulbound": 0.8,
+  "Badge": 0.8,
+  "POAP": 0.8,
+  "NFT": 0.8,
+  "NFT Marketplace": 0.8,
+  "NFT Lending": 0.8,
+  "NFT Fi": 0.8,
+  "NFT Perp": 0.8,
+  "NFT AMM": 0.8,
+  "NFT Staking": 0.8,
+  "NFT Rental": 0.8,
+  "NFT Fractionalization": 0.8,
+  "NFT Aggregator": 0.8,
+  "NFT Launchpad": 0.8,
+  "NFT DEX": 0.8,
+  "NFT Options": 0.8,
+  "NFT Index": 0.8,
+  "NFT Vault": 0.8,
+  "NFT Yield": 0.8,
+  "NFT Farm": 0.8,
+  "NFT Pool": 0.8,
+  "NFT Swap": 0.8,
+  "NFT Bridge": 0.8,
+  "NFT Oracle": 0.8,
+  "NFT Insurance": 0.8,
+  "NFT Prediction": 0.8,
+  "NFT Gaming": 0.8,
+  "NFT Social": 0.8,
+  "NFT DAO": 0.8,
+  "NFT Governance": 0.8,
+  "NFT Identity": 0.8,
+  "NFT Reputation": 0.8,
+  "NFT Attestation": 0.8,
+  "NFT Credential": 0.8,
+  "NFT Passport": 0.8,
+  "NFT Soulbound": 0.8,
+  "NFT Badge": 0.8,
+  "NFT POAP": 0.8,
 };
 
-// ---------- helpers ----------
-const OUT = process.env.MAKEFUN_OUTPUT_DIR || resolve(".");
-const ROOT = process.cwd();
+const CATEGORY_DEFAULT_MULTIPLE = 0.8;
 
-function readJSON(p: string): any {
-  return JSON.parse(readFileSync(p, "utf8"));
+function norm(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
-function findSnapshot(): any {
-  const candidates = [
-    join(ROOT, "snapshot.json"),
-    join(ROOT, "data", "snapshot.json"),
-    join(ROOT, "vendor", "snapshot.json"),
-    join(ROOT, "protocols.json"),
-    join(ROOT, "data", "protocols.json"),
-  ];
-  for (const c of candidates) if (existsSync(c)) return readJSON(c);
-  // scan for any json with a protocols/list array
-  const walk = (dir: string, depth = 0): string | null => {
-    if (depth > 3) return null;
-    let entries: string[] = [];
-    try { entries = readdirSync(dir); } catch { return null; }
-    for (const e of entries) {
-      if (e.startsWith(".") || e === "node_modules" || e === "dashboard" || e === "screenshots") continue;
-      const p = join(dir, e);
-      let st; try { st = statSync(p); } catch { continue; }
-      if (st.isDirectory()) { const r = walk(p, depth + 1); if (r) return r; }
-      else if (e.endsWith(".json") && st.size > 1000) {
-        try {
-          const j = readJSON(p);
-          const arr = Array.isArray(j) ? j : j.protocols || j.data || j.list;
-          if (Array.isArray(arr) && arr.length > 20 && arr[0] && (arr[0].tvl !== undefined || arr[0].name)) return p;
-        } catch {}
-      }
+function isWrappedOrStaked(p: Protocol): { wrapped: boolean; why: string } {
+  const name = p.name || "";
+  const slug = p.slug || "";
+  const sym = (p.tokenSymbol || p.symbol || "").trim();
+
+  if (WRAPPED_PATTERNS.some((r) => r.test(name))) {
+    return { wrapped: true, why: "name matches wrapped/staked token pattern" };
+  }
+  if (WRAPPED_SUFFIX.test(name)) {
+    return { wrapped: true, why: "name ends in wrapped" };
+  }
+  if (sym && WRAPPED_PATTERNS.some((r) => r.test(sym))) {
+    return { wrapped: true, why: "symbol matches wrapped/staked token pattern" };
+  }
+  if (/^(w|st|stk|s)[a-z]{2,6}$/i.test(sym) && sym.length <= 8) {
+    // conservative: only flag if category is derivative-ish
+    const cat = (p.category || "").toLowerCase();
+    if (cat.includes("wrapped") || cat.includes("staking") || cat.includes("restaking")) {
+      return { wrapped: true, why: "w-prefixed symbol in derivative category" };
     }
-    return null;
-  };
-  const found = walk(ROOT);
-  if (found) return readJSON(found);
-  throw new Error("no snapshot found");
+  }
+  const cat = (p.category || "").toLowerCase();
+  if (DERIVATIVE_CATEGORIES.some((c) => cat === c.toLowerCase())) {
+    return { wrapped: true, why: `category ${p.category} is a derivative product` };
+  }
+  const desc = (p.description || "").toLowerCase();
+  if (STAKED_KEYWORDS.some((k) => desc.includes(k)) && /wrapped|staked|derivative/i.test(desc)) {
+    return { wrapped: true, why: "description marks it as wrapped/staked derivative" };
+  }
+  if (p.parentProtocol) {
+    return { wrapped: true, why: `child of ${p.parentProtocol}` };
+  }
+  if (slug.startsWith("wrapped-") || slug.startsWith("staked-") || slug.startsWith("stk-")) {
+    return { wrapped: true, why: "slug marks it as wrapped/staked" };
+  }
+  return { wrapped: false, why: "" };
 }
 
-function normList(j: any): Proto[] {
-  const arr = Array.isArray(j) ? j : j.protocols || j.data || j.list || [];
-  return arr.map((p: any) => ({
-    name: String(p.name || p.slug || ""),
-    slug: p.slug || String(p.name || "").toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-    symbol: p.symbol,
-    category: p.category || "Uncategorized",
-    chains: Array.isArray(p.chains) ? p.chains : p.chain ? [p.chain] : [],
-    tvl: Number(p.tvl ?? p.tvlUsd ?? 0),
-    mcap: Number(p.mcap ?? p.marketCap ?? 0),
-    change_1d: Number(p.change_1d ?? p.change1d ?? 0),
-    change_7d: Number(p.change_7d ?? p.change7d ?? 0),
-    change_1m: Number(p.change_1m ?? p.change1m ?? 0),
-    url: p.url || "",
-    description: p.description || "",
-    listedAt: Number(p.listedAt || 0),
-    audits: p.audits,
-    twitter: p.twitter,
-    parentProtocol: p.parentProtocol,
-  }));
-}
-
-// wrapped / staked detection
-const WRAPPED_RE = /(^|\b)(wrapped|staked|stake|restaked|restaking|liquid staking|liquid restaking|bridged|vault|receipt|weth|wbtc|wsol|wsteth|reth|cbeth|sfrxeth|ankreth|stmatic|savax|wavax|wbnb|wftm|wmatic|wpol|wxdai|wglmr|wkava|wcro|wone|wmovr|wmetis|wcelo|wklay|wfil|wop|warb|wusdc|wusdt|weth|wbtc|steth|stsol|jitosol|msol|bsol|bnsol|susd|susds|susde|stusd|sfrxeth|ezeth|weeth|rseth|wstusd|usdy|usde|susde|sdeusd|susdg|wusdm|sfrax|sfrxusd|frxeth|sfrxeth|meth|sweth|reth|wbeth|tbtc|wstbtc|stbtc|sbtc|wsteth|steth|wstksc|wstusd|wstksc|wstksc|wsom|wsei|wcore|wiota|wzkl|wrose|wklay|wemix|wbnb|wcro|wftm|wavax|wmovr|wone|wglmr|wcelo|wkava|wpol|wmatic|wxdai|warb|wop|wfil|wmetis|wbnb|weth|wbtc|wsol|wusdc|wusdt|wusdc\.e|weth\.e|wbtc\.e|wavax|wbnb|wftm|wmatic|wxdai|wglmr|wkava|wcro|wone|wmovr|wmetis|wcelo|wklay|wfil|wop|warb|wzkl|wrose|wsei|wcore|wiota|wsom|wemix|wzkl|wrose)/i;
-const STAKED_RE = /(staked|staking|restak|restaked|liquid|vault|receipt|wrapped|weth|wbtc|wsteth|steth|reth|cbeth|sfrxeth|ankreth|stmatic|savax|wavax|wbnb|wftm|wmatic|wpol|wxdai|wglmr|wkava|wcro|wone|wmovr|wmetis|wcelo|wklay|wfil|wop|warb|wusdc|wusdt|weth|wbtc|steth|stsol|jitosol|msol|bsol|bnsol|susd|susds|susde|stusd|sfrxeth|ezeth|weeth|rseth|wstusd|usdy|usde|susde|sdeusd|susdg|wusdm|sfrax|sfrxusd|frxeth|sfrxeth|meth|sweth|reth|wbeth|tbtc|wstbtc|stbtc|sbtc|wsteth|steth|wstksc|wstusd|wstksc|wstksc|wsom|wsei|wcore|wiota|wzkl|wrose|wklay|wemix|wbnb|wcro|wftm|wavax|wmovr|wone|wglmr|wcelo|wkava|wpol|wmatic|wxdai|warb|wop|wfil|wmetis|wbnb|weth|wbtc|wsol|wusdc|wusdt|wusdc\.e|weth\.e|wbtc\.e|wavax|wbnb|wftm|wmatic|wxdai|wglmr|wkava|wcro|wone|wmovr|wmetis|wcelo|wklay|wfil|wop|warb|wzkl|wrose|wsei|wcore|wiota|wsom|wemix|wzkl|wrose)/i;
-
-function isWrappedOrStaked(p: Proto): boolean {
-  const n = p.name.toLowerCase();
-  const s = (p.symbol || "").toLowerCase();
-  if (WRAPPED_RE.test(n) || STAKED_RE.test(n)) return true;
-  if (s && (WRAPPED_RE.test(s) || STAKED_RE.test(s))) return true;
-  if (p.parentProtocol) return true;
-  return false;
-}
-
-function hasToken(p: Proto): boolean {
-  // DefiLlama: protocols with a token usually have mcap>0 or symbol set
+function hasToken(p: Protocol): boolean {
   if (p.mcap && p.mcap > 0) return true;
+  if (p.tokenSymbol && p.tokenSymbol.trim().length > 0) return true;
   if (p.symbol && p.symbol.trim().length > 0) return true;
+  if (p.gecko_id && String(p.gecko_id).trim().length > 0) return true;
   return false;
 }
 
-function impliedValue(p: Proto): number {
-  // rough: TVL * category multiple, adjusted for momentum
-  const tvl = Math.max(0, p.tvl || 0);
-  const cat = (p.category || "").toLowerCase();
-  let mult = 0.5;
-  if (cat.includes("dex")) mult = 0.9;
-  else if (cat.includes("lending")) mult = 0.8;
-  else if (cat.includes("liquid staking")) mult = 1.1;
-  else if (cat.includes("bridge")) mult = 0.6;
-  else if (cat.includes("yield")) mult = 0.5;
-  else if (cat.includes("perpetual") || cat.includes("derivative")) mult = 1.0;
-  else if (cat.includes("cdp")) mult = 0.7;
-  else if (cat.includes("rwa")) mult = 1.2;
-  else if (cat.includes("restaking")) mult = 1.3;
-  else if (cat.includes("oracle")) mult = 0.4;
-  const mom = 1 + Math.max(-0.3, Math.min(0.5, (p.change_7d || 0) / 100));
-  return Math.round(tvl * mult * mom);
-}
-
-function launchScore(p: Proto, implied: number): number {
-  const tvl = Math.max(0, p.tvl || 0);
-  const age = p.listedAt ? Math.max(0, (Date.now() / 1000 - p.listedAt) / 86400) : 365;
-  const ageBoost = age > 180 ? 1.15 : age > 90 ? 1.05 : 1.0;
-  const mom = 1 + Math.max(-0.2, Math.min(0.4, (p.change_1m || 0) / 200));
-  const chains = (p.chains || []).length;
-  const chainBoost = 1 + Math.min(0.2, chains * 0.03);
-  return Math.round(implied * ageBoost * mom * chainBoost);
-}
-
-function farmPlan(p: Proto, implied: number): string[] {
-  const cat = (p.category || "").toLowerCase();
-  const plan: string[] = [];
-  plan.push(`Track ${p.name} on DefiLlama and its official channels for a token announcement or points program.`);
-  if (cat.includes("dex") || cat.includes("perpetual")) {
-    plan.push("Provide liquidity to the main pool and trade weekly to build volume for a potential airdrop.");
-  } else if (cat.includes("lending") || cat.includes("cdp")) {
-    plan.push("Supply and borrow against collateral to accumulate usage; keep positions healthy.");
-  } else if (cat.includes("liquid staking") || cat.includes("restaking")) {
-    plan.push("Stake native assets through the protocol and hold the receipt token to earn points.");
-  } else if (cat.includes("bridge")) {
-    plan.push("Bridge assets across supported chains and return to build cross-chain volume.");
-  } else if (cat.includes("yield") || cat.includes("vault")) {
-    plan.push("Deposit into the flagship vaults and compound rewards regularly.");
-  } else {
-    plan.push("Use the protocol's core product weekly and keep a wallet history of genuine activity.");
+function categoryMultiple(cat: string): number {
+  if (!cat) return CATEGORY_DEFAULT_MULTIPLE;
+  if (CATEGORY_PEER_MULTIPLE[cat] !== undefined) return CATEGORY_PEER_MULTIPLE[cat];
+  const n = norm(cat);
+  for (const [k, v] of Object.entries(CATEGORY_PEER_MULTIPLE)) {
+    if (norm(k) === n) return v;
   }
-  plan.push(`Estimated launch value ~$${implied.toLocaleString()} based on TVL and category multiples.`);
-  if (implied > 50_000_000) plan.push("High-value candidate: prioritize early, sustained usage and governance participation.");
-  else if (implied > 10_000_000) plan.push("Mid-tier candidate: worth steady farming with a dedicated wallet.");
-  else plan.push("Lower implied value: farm opportunistically alongside higher-ranked protocols.");
-  return plan;
-}
-
-// ---------- build ----------
-function build() {
-  const raw = findSnapshot();
-  const protos = normList(raw);
-  const untok = protos.filter((p) => !hasToken(p) && !isWrappedOrStaked(p) && (p.tvl || 0) > 0);
-
-  const rows: Row[] = untok
-    .map((p) => {
-      const implied = impliedValue(p);
-      return {
-        rank: 0,
-        name: p.name,
-        slug: p.slug || "",
-        category: p.category || "Uncategorized",
-        chains: p.chains || [],
-        tvl: Math.round(p.tvl || 0),
-        impliedValue: implied,
-        launchScore: launchScore(p, implied),
-        reason: `${p.name} records no token and is not a wrapped/staked derivative; TVL $${Math.round(p.tvl || 0).toLocaleString()} in ${p.category}.`,
-        farmPlan: farmPlan(p, implied),
-        url: p.url || `https://defillama.com/protocol/${p.slug}`,
-      };
-    })
-    .sort((a, b) => b.launchScore - a.launchScore)
-    .map((r, i) => ({ ...r, rank: i + 1 }));
-
-  const board = {
-    generatedAt: new Date().toISOString(),
-    totalProtocols: protos.length,
-    untokenized: rows.length,
-    rows,
-  };
-
-  mkdirSync(OUT, { recursive: true });
-  writeFileSync(join(OUT, "board.json"), JSON.stringify(board, null, 2));
-
-  // dashboard
-  const dashDir = join(OUT, "dashboard");
-  mkdirSync(dashDir, { recursive: true });
-  writeFileSync(join(dashDir, "index.html"), renderDashboard(board));
-  writeFileSync(join(dashDir, "board.json"), JSON.stringify(board));
-
-  // copy vendor board if present
-  const vendorSrc = join(ROOT, "vendor", "makefun-board.ts");
-  if (existsSync(vendorSrc)) {
-    mkdirSync(join(OUT, "vendor"), { recursive: true });
-    writeFileSync(join(OUT, "vendor", "makefun-board.ts"), readFileSync(vendorSrc));
+  for (const [k, v] of Object.entries(CATEGORY_PEER_MULTIPLE)) {
+    if (n.includes(norm(k)) || norm(k).includes(n)) return v;
   }
-
-  console.log(`wrote board.json with ${rows.length} rows to ${OUT}`);
+  return CATEGORY_DEFAULT_MULTIPLE;
 }
 
-function renderDashboard(board: any): string {
-  const data = JSON.stringify(board);
-  return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Token Launch Radar</title>
-<style>
-:root{--bg:#0b0f14;--panel:#121821;--line:#1f2a37;--txt:#e6edf3;--mut:#8b98a5;--acc:#3fb950;--hot:#f0883e}
-*{box-sizing:border-box}body{margin:0;font:14px/1.5 system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--txt)}
-header{padding:18px 24px;border-bottom:1px solid var(--line);display:flex;gap:16px;align-items:center;flex-wrap:wrap}
-h1{font-size:18px;margin:0}h1 span{color:var(--acc)}
-.stat{color:var(--mut);font-size:12px}.stat b{color:var(--txt)}
-main{display:grid;grid-template-columns:1fr 420px;gap:0;height:calc(100vh - 64px)}
-#list{overflow:auto;padding:12px 24px}
-#detail{overflow:auto;border-left:1px solid var(--line);padding:18px;background:var(--panel)}
-table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);font-size:13px}
-th{color:var(--mut);font-weight:600;position:sticky;top:0;background:var(--bg);cursor:pointer}
-tr.row{cursor:pointer}tr.row:hover{background:#161d27}tr.sel{background:#1a2433}
-.rank{color:var(--mut);width:44px}.name{font-weight:600}.cat{color:var(--mut);font-size:12px}
-.val{color:var(--acc);font-variant-numeric:tabular-nums}.tvl{color:var(--mut);font-variant-numeric:tabular-nums}
-.badge{display:inline-block;padding:1px 7px;border-radius:10px;background:#1f2a37;color:var(--mut);font-size:11px;margin-left:6px}
-input,select{background:var(--panel);border:1px solid var(--line);color:var(--txt);padding:7px 10px;border-radius:6px;font-size:13px}
-.filters{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
-h2{margin:0 0 4px;font-size:20px}.sub{color:var(--mut);font-size:12px;margin-bottom:14px}
-.kv{display:grid;grid-template-columns:110px 1fr;gap:4px 10px;font-size:13px;margin-bottom:16px}
-.kv div:nth-child(odd){color:var(--mut)}
-ol{padding-left:18px}ol li{margin-bottom:6px}
-.pill{display:inline-block;background:#16202c;border:1px solid var(--line);border-radius:6px;padding:2px 8px;margin:2px;font-size:11px;color:var(--mut)}
-a{color:#58a6ff;text-decoration:none}a:hover{text-decoration:underline}
-.empty{color:var(--mut);padding:40px;text-align:center}
-@media(max-width:900px){main{grid-template-columns:1fr}#detail{border-left:none;border-top:1px solid var(--line)}}
-</style></head><body>
-<header><h1>Token <span>Launch Radar</span></h1>
-<div class="stat">protocols <b id="s1"></b></div>
-<div class="stat">untokenized <b id="s2"></b></div>
-<div class="stat">generated <b id="s3"></b></div></header>
-<main><section id="list">
-<div class="filters">
-<input id="q" placeholder="search name / category / chain" style="flex:1;min-width:180px">
-<select id="cat"><option value="">all categories</option></select>
-<select id="sort">
-<option value="launchScore">sort: launch score</option>
-<option value="impliedValue">sort: implied value</option>
-<option value="tvl">sort: TVL</option>
-<option value="name">sort: name</option>
-</select>
-</div>
-<table><thead><tr><th>#</th><th>Protocol</th><th>Category</th><th>TVL</th><th>Implied value</th><th>Score</th></tr></thead>
-<tbody id="tbody"></tbody></table>
-</section>
-<section id="detail"><div class="empty">Select a protocol to see its launch case and farm plan.</div></section>
-</main>
-<script>
-const BOARD=${data};
-const rows=BOARD.rows;
-document.getElementById('s1').textContent=BOARD.totalProtocols;
-document.getElementById('s2').textContent=BOARD.untokenized;
-document.getElementById('s3').textContent=new Date(BOARD.generatedAt).toLocaleString();
-const cats=[...new Set(rows.map(r=>r.category))].sort();
-const catSel=document.getElementById('cat');
-cats.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;catSel.appendChild(o)});
-const fmt=n=>'$'+Math.round(n).toLocaleString();
-let state={q:'',cat:'',sort:'launchScore',sel:null};
-function filtered(){
-  let r=rows.filter(x=>{
-    if(state.cat&&x.category!==state.cat)return false;
-    if(state.q){const q=state.q.toLowerCase();const hay=(x.name+' '+x.category+' '+x.chains.join(' ')).toLowerCase();if(!hay.includes(q))return false}
-    return true;
-  });
-  const s=state.sort;
-  r=r.slice().sort((a,b)=>s==='name'?a.name.localeCompare(b.name):(b[s]-a[s]));
-  return r;
+function findPeers(p: Protocol, all: Protocol[]): { name: string; mcap: number; ratio: number }[] {
+  const cat = p.category || "";
+  const peers: { name: string; mcap: number; ratio: number }[] = [];
+  for (const q of all) {
+    if (q === p) continue;
+    if (!q.mcap || q.mcap <= 0) continue;
+    if (!q.tvl || q.tvl <= 0) continue;
+    if ((q.category || "") !== cat) continue;
+    const ratio = q.mcap / q.tvl;
+    if (!isFinite(ratio) || ratio <= 0) continue;
+    peers.push({ name: q.name, mcap: q.mcap, ratio });
+  }
+  peers.sort((a, b) => b.mcap - a.mcap);
+  return peers.slice(0, 8);
 }
-function renderList(){
-  const r=filtered();const tb=document.getElementById('tbody');tb.innerHTML='';
-  if(!r.length){tb.innerHTML='<tr><td colspan="6" class="empty">No protocols match.</td></tr>';return}
-  r.forEach(x=>{
-    const tr=document.createElement('tr');tr.className='row'+(state.sel===x.slug?' sel':'');
-    tr.innerHTML='<td class="rank">
+
+function median(nums: number[]): number {
+  if (nums.length === 0) return 0;
+  const s = [...nums].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+function scoreRow(p: Protocol, peers: { name: string; mcap: number; ratio: number }[], all: Protocol[]): Row {
+  const tvl = p.tvl || 0;
+  const cat = p.category || "Unknown";
+  const catMult = categoryMultiple(cat);
+  const peerRatios = peers.map((x) => x.ratio);
+  const peerMedian = peerRatios.length > 0 ? median(peerRatios) : catMult;
+  const baseRatio = peerRatios.length >= 2 ? 0.6 * peerMedian + 0.4 * catMult : catMult;
+
+  const implied = tvl * baseRatio;
+  const low = tvl * baseRatio * 0.55;
+  const high = tvl * baseRatio * 1.75;
+
+  // confidence: more peers + more TVL + established age => higher
+  let confidence = 0.4;
+  confidence += Math.min(0.3, peers.length * 0.05);
+  confidence += Math.min(0.2, Math.log10(Math.max(1, tvl)) / 40);
+  if (p.listedAt) {
+    const ageDays = (Date.now() / 1000 - p.listedAt) / 86400;
+    confidence += Math.min(0.1, ageDays / 3650);
+  }
+  confidence = Math.max(0.05, Math.min(0.98, confidence));
+
+  const ch7 = p.change_7d || 0;
+  const ch1m = p.change_1m || 0;
+  const momentum = 1 + Math.max(-0.3, Math.min(0.4, (ch7 * 0.6 + ch1m * 0.4) / 100));
+
+  const reasons: string[] = [];
+  reasons.push(`TVL $${fmt(tvl)} across ${(p.chains || []).length || 1} chain(s)`);
+  reasons.push(`category ${cat} peer multiple ${baseRatio.toFixed(2)}x TVL`);
+  if (peers.length) reasons.push(`${peers.length} tokenized peer(s) in same category`);
+  if (p.audits === "yes" || (p.audit_links && p.audit_links.length)) reasons.push("audited");
+  if (p.forkedFrom && p.forkedFrom.length) reasons.push(`forked from ${p.forkedFrom.join(", ")}`);
+  if (ch7 || ch1m) reasons.push(`7d ${ch7.toFixed(1)}% / 1m ${ch1m.toFixed(1)}% TVL change`);
+
+  const score = implied * confidence * momentum;
+
+  const farm = farmPlan(p, tvl, implied, cat);
+
+  return {

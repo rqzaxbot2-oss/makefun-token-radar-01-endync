@@ -1,0 +1,45 @@
+{
+  "format": "makefun-board/1",
+  "generated_by": "vendor/makefun-board.ts",
+  "generated_at": "2026-11-20T00:00:00.000Z",
+  "run": {
+    "entrypoint": "main.ts",
+    "runtime": "node22",
+    "dashboard": "dashboard/index.html",
+    "board": "board.json",
+    "vendor": "vendor/makefun-board.ts",
+    "network_at_runtime": false,
+    "output_dir_env": "MAKEFUN_OUTPUT_DIR"
+  },
+  "watchlist": {
+    "source": "DefiLlama sealed snapshot",
+    "total_protocols": 100,
+    "covered_rows": 100,
+    "missing_rows": 0,
+    "coverage": 1.0,
+    "criteria": [
+      "protocol records no token",
+      "protocol is not a wrapped product of a trading token",
+      "protocol is not a staked product of a trading token",
+      "protocol is not a derivative of a token that already trades"
+    ]
+  },
+  "ranking": {
+    "method": "implied launch value",
+    "fields": [
+      "implied_value_usd",
+      "tvl_usd",
+      "revenue_30d_usd",
+      "farm_plan"
+    ],
+    "rows_with_implied_value": 100,
+    "rows_with_farm_plan": 100
+  },
+  "screenshots": [
+    "screenshots/board.png",
+    "screenshots/detail.png",
+    "screenshots/filtered.png"
+  ],
+  "license": "MIT",
+  "notes": "Dossier generated from the sealed snapshot; all watchlist protocols covered with implied value and farm plan."
+}
