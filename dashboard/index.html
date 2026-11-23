@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token Launch Radar</title>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#121a23; --panel2:#0f1620; --line:#22303f;
+    --txt:#e6edf3; --dim:#8aa0b4; --accent:#4fd1c5; --accent2:#f6ad55;
+    --good:#48bb78; --warn:#f6ad55; --bad:#f56565; --chip:#1b2733;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  header{padding:18px 22px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#0e1620,#0b0f14)}
+  h1{margin:0;font-size:20px;letter-spacing:.3px}
+  h1 span{color:var(--accent)}
+  .sub{color:var(--dim);font-size:12.5px;margin-top:4px}
+  .wrap{display:grid;grid-template-columns:minmax(0,1fr) 460px;gap:0;height:calc(100vh - 74px)}
+  .left{overflow:auto;padding:14px 18px}
+  .right{overflow:auto;border-left:1px solid var(--line);background:var(--panel2);padding:16px 18px}
+  .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+  input[type=search],select{background:var(--panel);border:1px solid var(--line);color:var(--txt);padding:7px 10px;border-radius:8px;font-size:13px;outline:none}
+  input[type=search]{min-width:220px}
+  input[type=search]:focus,select:focus{border-color:var(--accent)}
+  .stat{color:var(--dim);font-size:12.5px;margin-left:auto}
+  .stat b{color:var(--txt)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  thead th{position:sticky;top:0;background:var(--bg);text-align:left;color:var(--dim);font-weight:600;padding:8px 8px;border-bottom:1px solid var(--line);cursor:pointer;user-select:none;white-space:nowrap;z-index:2}
+  thead th:hover{color:var(--accent)}
+  thead th .ar{color:var(--accent);font-size:10px}
+  tbody td{padding:8px 8px;border-bottom:1px solid #17212c;vertical-align:top}
+  tbody tr{cursor:pointer}
+  tbody tr:hover{background:#101a24}
+  tbody tr.sel{background:#132430;box-shadow:inset 3px 0 0 var(--accent)}
+  .rank{color:var(--dim);font-variant-numeric:tabular-nums;width:34px}
+  .name{font-weight:600}
+  .cat{color:var(--dim);font-size:11.5px}
+  .val{font-variant-numeric:tabular-nums;color:var(--accent2);font-weight:600;white-space:nowrap}
+  .chain{color:var(--dim);font-size:11.5px;white-space:nowrap}
+  .bar{height:6px;background:#1a2632;border-radius:4px;overflow:hidden;min-width:70px}
+  .bar>i{display:block;height:100%;background:linear-gradient(90deg,#2c7a7b,var(--accent))}
+  .chip{display:inline-block;background:var(--chip);border:1px solid var(--line);color:var(--dim);border-radius:999px;padding:1px 8px;font-size:11px;margin:1px 3px 1px 0}
+  .chip.good{color:var(--good);border-color:#245c3a}
+  .chip.warn{color:var(--warn);border-color:#5c4a24}
+  .chip.bad{color:var(--bad);border-color:#5c2424}
+  .empty{color:var(--dim);padding:30px;text-align:center}
+  .detail h2{margin:0 0 2px;font-size:18px}
+  .detail .dsub{color:var(--dim);font-size:12.5px;margin-bottom:12px}
+  .kv{display:grid;grid-template-columns:130px 1fr;gap:6px 10px;font-size:13px;margin:10px 0}
+  .kv .k{color:var(--dim)}
+  .kv .v{color:var(--txt);word-break:break-word}
+  .section{margin-top:18px}
+  .section h3{margin:0 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--accent)}
+  ol.steps{margin:0;padding-left:20px}
+  ol.steps li{margin-bottom:8px}
+  ol.steps li b{color:var(--txt)}
+  .note{color:var(--dim);font-size:12px;margin-top:6px}
+  .big{font-size:22px;color:var(--accent2);font-weight:700;font-variant-numeric:tabular-nums}
+  .placeholder{color:var(--dim);text-align:center;padding:60px 20px;font-size:13px}
+  .legend{font-size:11.5px;color:var(--dim);margin-top:10px}
+  a{color:var(--accent)}
+  @media(max-width:980px){.wrap{grid-template-columns:1fr;height:auto}.right{border-left:none;border-top:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Token Launch <span>Radar</span></h1>
+  <div class="sub">Protocols DefiLlama tracks that still have <b>no token</b> (and are not a wrapped/staked product of one that trades), ranked by what a launch would be worth.</div>
+</header>
+<div class="wrap">
+  <div class="left">
+    <div class="controls">
+      <input id="q" type="search" placeholder="Search protocol, category, chain…" autocomplete="off">
+      <select id="fCat"><option value="">All categories</option></select>
+      <select id="fChain"><option value="">All chains</option></select>
+      <select id="fConf">
+        <option value="">All confidence</option>
+        <option value="high">High confidence</option>
+        <option value="medium">Medium confidence</option>
+        <option value="low">Low confidence</option>
+      </select>
+      <select id="fSort">
+        <option value="value">Sort: implied value</option>
+        <option value="tvl">Sort: TVL</option>
+        <option value="name">Sort: name</option>
+        <option value="rank">Sort: rank</option>
+      </select>
+      <div class="stat" id="stat"></div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th data-sort="rank">#</th>
+          <th data-sort="name">Protocol</th>
+          <th data-sort="category">Category</th>
+          <th data-sort="tvl">TVL</th>
+          <th data-sort="value">Implied value <span class="ar" id="ar"></span></th>
+          <th data-sort="value">Score</th>
+          <th data-sort="chain">Chains</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="legend">Implied value = a launch-worthiness estimate from TVL, fee/revenue proxies and comparable token launches. Score is the 0–100 radar rank. Click any row for the detail view and farm plan.</div>
+  </div>
+  <div class="right" id="detail">
+    <div class="placeholder">Select a protocol on the left to see its detail view and the steps to farm it.</div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var BOARD = window.BOARD || null;
+  var rows = [];
+  var filtered = [];
+  var selectedId = null;
+  var sortKey = "value", sortDir = -1;
+
+  function esc(s){
+    if(s===null||s===undefined) return "";
+    return String(s).replace(/[&<>"']/g,function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+    });
+  }
+  function fmtUsd(n){
+    if(n===null||n===undefined||isNaN(n)) return "—";
+    n = Number(n);
+    var a = Math.abs(n);
+    if(a>=1e9) return "$"+(n/1e9).toFixed(2)+"B";
+    if(a>=1e6) return "$"+(n/1e6).toFixed(2)+"M";
+    if(a>=1e3) return "$"+(n/1e3).toFixed(1)+"K";
+    return "$"+n.toFixed(0);
+  }
+  function num(n){
+    if(n===null||n===undefined||isNaN(n)) return 0;
+    return Number(n);
+  }
+  function chainsOf(r){
+    if(Array.isArray(r.chains)&&r.chains.length) return r.chains;
+    if(r.chain) return [r.chain];
+    return [];
+  }
+  function catOf(r){ return r.category || r.sector || "Other"; }
+  function nameOf(r){ return r.name || r.protocol || r.slug || "(unnamed)"; }
+  function idOf(r){ return r.id || r.slug || nameOf(r); }
+  function valueOf(r){
+    return num(r.impliedValueUsd!=null?r.impliedValueUsd:(r.impliedValue!=null?r.impliedValue:r.valueUsd));
+  }
+  function tvlOf(r){ return num(r.tvlUsd!=null?r.tvlUsd:r.tvl); }
+  function scoreOf(r){
+    if(r.score!=null) return num(r.score);
+    if(r.radarScore!=null) return num(r.radarScore);
+    return 0;
+  }
+  function confOf(r){ return (r.confidence||r.conf||"").toLowerCase(); }
+  function farmOf(r){
+    if(Array.isArray(r.farmPlan)) return r.farmPlan;
+    if(Array.isArray(r.farm)) return r.farm;
+    if(typeof r.farmPlan==="string") return [r.farmPlan];
+    if(typeof r.farm==="string") return [r.farm];
+    return [];
+  }
+
+  function normalize(raw){
+    if(!raw) return [];
+    var list = Array.isArray(raw) ? raw : (raw.rows || raw.board || raw.protocols || []);
+    if(!Array.isArray(list)) return [];
+    return list.map(function(r,i){
+      var o = Object.assign({}, r);
+      o._id = idOf(r);
+      o._name = nameOf(r);
+      o._cat = catOf(r);
+      o._chains = chainsOf(r);
+      o._value = valueOf(r);
+      o._tvl = tvlOf(r);
+      o._score = scoreOf(r);
+      o._conf = confOf(r);
+      o._farm = farmOf(r);
+      o._rank = r.rank!=null ? num(r.rank) : i+1;
+      return o;
+    });
+  }
+
+  function fillSelect(sel, values){
+    var seen = {};
+    values.forEach(function(v){
+      if(!v||seen[v]) return;
+      seen[v]=1;
+      var opt = document.createElement("option");
+      opt.value = v; opt.textContent = v;
+      sel.appendChild(opt);
+    });
+  }
+
+  function applyFilters(){
+    var q = (document.getElementById("q").value||"").trim().toLowerCase();
+    var cat = document.getElementById("fCat").value;
+    var chain = document.getElementById("fChain").value;
+    var conf = document.getElementById("fConf").value;
+    filtered = rows.filter(function(r){
+      if(cat && r._cat!==cat) return false;
+      if(chain && r._chains.indexOf(chain)===-1) return false;
+      if(conf && r._conf!==conf) return false;
+      if(q){
+        var hay = (r._name+" "+r._cat+" "+r._chains.join(" ")+" "+(r.description||"")+" "+(r.slug||"")).toLowerCase();
+        if(hay.indexOf(q)===-1) return false;
+      }
+      return true;
+    });
+    sortRows();
+    render();
+  }
+
+  function sortRows(){
+    var k = sortKey, d = sortDir;
+    filtered.sort(function(a,b){
+      var va, vb;
+      if(k==="name"){ va=a._name.toLowerCase(); vb=b._name.toLowerCase(); return va<vb?-d:va>vb?d:0; }
+      if(k==="rank"){ va=a._rank; vb=b._rank; return (va-vb)*d; }
+      if(k==="tvl"){ va=a._tvl; vb=b._tvl; return (va-vb)*d; }
+      if(k==="category"){ va=a._cat.toLowerCase(); vb=b._cat.toLowerCase(); return va<vb?-d:va>vb?d:0; }
+      if(k==="chain"){ va=a._chains.join(","); vb=b._chains.join(","); return va<vb?-d:va>vb?d:0; }
+      va=a._value; vb=b._value;
+      if(va===vb){ return a._rank-b._rank; }
+      return (va-vb)*d;
+    });
+  }
+
+  function render(){
+    var tb = document.getElementById("rows");
+    var maxVal = filtered.reduce(function(m,r){ return Math.max(m,r._value); },1);
+    var html = "";
+    filtered.forEach(function(r){
+      var pct = Math.max(2, Math.round((r._value/maxVal)*100));
+      var confCls = r._conf==="high"?"good":(r._conf==="low"?"bad":(r._conf?"warn":""));
+      html += '<tr data-id="'+esc(r._id)+'"'+(r._id===selectedId?' class="sel"':'')+'>';
+      html += '<td class="rank">'+esc(r._rank)+'</td>';
+      html += '<td><div class="name">'+esc(r._name)+'</div>'+
+              (r._conf?'<span class="chip '+confCls+'">'+esc(r._conf)+'</span>':'')+
+              '</td>';
+      html += '<td><span class="cat">'+esc(r._cat)+'</span></td>';
+      html += '<td class="chain">'+fmtUsd(r._tvl)+'</td>';
+      html += '<td class="val">'+fmtUsd(r._value)+'</td>';
+      html += '<td><div class="bar" title="score '+esc(r._score)+'"><i style="width:'+Math.max(2,Math.min(100,r._score))+'%"></i></div></td>';
+      html += '<td class="chain">'+esc(r._chains.slice(0,3).join(", "))+(r._chains.length>3?' +'+(r._chains.length-3):'')+'</td>';
+      html += '</tr>';
+    });
+    if(!filtered.length){
+      html = '<tr><td colspan="7"><div class="empty">No protocols match these filters.</div></td></tr>';
+    }
+    tb.innerHTML = html;
+    var totalVal = filtered.reduce(function(s,r){ return s+r._value; },0);
+    document.getElementById("stat").innerHTML =
+      '<b>'+filtered.length+'</b> / '+rows.length+' protocols · combined implied value <b>'+fmtUsd(totalVal)+'</b>';
+    document.getElementById("ar").textContent = sortDir<0?"▼":"▲";
+  }
+
+  function findById(id){
+    for(var i=0;i<rows.length;i++){ if(rows[i]._id===id) return rows[i]; }
+    return null;
+  }
+
+  function renderDetail(r){
+    var d = document.getElementById("detail");
+    if(!r){ d.innerHTML='<div class="placeholder">Select a protocol on the left to see its detail view and the steps to farm it.</div>'; return; }
+    var h = '<div class="detail">';
+    h += '<h2>'+esc(r._name)+'</h2>';
+    h += '<div class="dsub">'+esc(r._cat)+' · '+esc(r._chains.join(", ")||"chains unknown")+'</div>';
+    h += '<div class="big">'+fmtUsd(r._value)+'</div><div class="note">estimated launch value · radar score '+esc(r._score)+'/100 · rank #'+esc(r._rank)+'</div>';
+    if(r.description){ h += '<p class="note" style="color:var(--txt);font-size:13px;margin-top:10px">'+esc(r.description)+'</p>'; }
+    h += '<div class="kv">';
+    h += '<div class="k">TVL</div><div class="v">'+fmtUsd(r._tvl)+'</div>';
+    if(r.feesUsd!=null) h += '<div class="k">Fees (proxy)</div><div class="v">'+fmtUsd(r.feesUsd)+'</div>';
+    if(r.revenueUsd!=null) h += '<div class="k">Revenue (proxy)</div><div class="v">'+fmtUsd(r.revenueUsd)+'</div>';
+    if(r.confidence) h += '<div class="k">Confidence</div><div class="v">'+esc(r.confidence)+'</div>';
+    if(r.tokenStatus) h += '<div class="k">Token status</div><div class="v">'+esc(r.tokenStatus)+'</div>';
+    if(r.valuationBasis) h += '<div class="k">Value basis</div><div class="v">'+esc(r.valuationBasis)+'</div>';
+    if(r.website) h += '<div class="k">Website</div><div class="v">'+esc(r.website)+'</div>';
+    if(r.twitter) h += '<div class="k">Social</div><div class="v">'+esc(r.twitter)+'</div>';
+    h += '</div>';
+
+    if(Array.isArray(r.signals)&&r.signals.length){
+      h += '<div class="section"><h3>Signals</h3><div>'+r.signals.map(function(s){return '<span class="chip">'+esc(s)+'</span>';}).join("")+'</div></div>';
+    }
+
+    h += '<div class="section"><h3>Steps to farm it</h3>';
+    if(r._farm.length){
+      h += '<ol class="steps">';
+      r._farm.forEach(function(step){
+        var txt = typeof step==="string" ? step : (step.step||step.text||step.action||JSON.stringify(step));
+        var why = (typeof step==="object"&&step.why) ? '<div class="note">'+esc(step.why)+'</div>' : '';
+        h += '<li>'+esc(txt)+why+'</li>';
+      });
+      h += '</ol>';
+    } else {
+      h += '<div class="note">No farm plan recorded for this protocol.</div>';
+    }
+    h += '</div>';
+
+    if(Array.isArray(r.risks)&&r.risks.length){
+      h += '<div class="section"><h3>Risks</h3><ul class="steps">';
+      r.risks.forEach(function(x){ h += '<li>'+esc(typeof x==="string"?x:(x.text||JSON.stringify(x)))+'</li>'; });
+      h += '</ul></div>';
+    }
+    h += '</div>';
+    d.innerHTML = h;
+    d.scrollTop = 0;
+  }
+
+  function select(id){
+    selectedId = id;
+    var r = findById(id);
+    renderDetail(r);
+    var trs = document.querySelectorAll("#rows tr");
+    for(var i=0;i<trs.length;i++){
+      trs[i].classList.toggle("sel", trs[i].getAttribute("data-id")===id);
+    }
+  }
+
+  function init(){
+    var raw = BOARD;
+    if(!raw){
+      var el = document.getElementById("board-data");
+      if(el){ try{ raw = JSON.parse(el.textContent); }catch(e){ raw = null; } }
+    }
+    rows = normalize(raw);
+    if(!rows.length){
+      document.getElementById("rows").innerHTML = '<tr><td colspan="7"><div class="empty">No board data loaded. Ensure board.json is embedded in this page.</div></td></tr>';
+      document.getElementById("stat").textContent = "0 protocols";
+      return;
+    }
+    var cats = {}, chs = {};
+    rows.forEach(function(r){
+      cats[r._cat]=1;
+      r._chains.forEach(function(c){ chs[c]=1; });
+    });
+    fillSelect(document.getElementById("fCat"), Object.keys(cats).sort());
+    fillSelect(document.getElementById("fChain"), Object.keys(chs).sort());
+
+    document.getElementById("q").addEventListener("input", applyFilters);
+    document.getElementById("fCat").addEventListener("change", applyFilters);
