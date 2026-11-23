@@ -1,398 +1,337 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync } from "node:fs";
-import { join, dirname, resolve } from "node:path";
+import { join, dirname, resolve, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const OUT = process.env.MAKEFUN_OUTPUT_DIR || resolve(__dirname, "out");
-mkdirSync(OUT, { recursive: true });
+const ROOT = dirname(fileURLToPath(import.meta.url));
+const OUT = process.env.MAKEFUN_OUTPUT_DIR ? resolve(process.env.MAKEFUN_OUTPUT_DIR) : ROOT;
 
 type Proto = {
   name: string;
   slug: string;
-  category: string;
+  category?: string | null;
   chains: string[];
-  tvl: number;
-  mcap: number;
-  twitter?: string;
-  url?: string;
-  description: string;
-  listedAt: number;
-  audits?: unknown;
-  [k: string]: unknown;
+  tvl: number | null;
+  mcap: number | null;
+  twitter: string | null;
+  url: string | null;
+  description: string | null;
+  listedAt: number | null;
+  audits: string | number | null;
+  forks: number | null;
+  parentProtocol: string | null;
+  symbol: string | null;
+  token: string | null;
+  raw: any;
 };
 
-type Class = "no-token" | "has-token" | "wrapped-staked";
+type BoardRow = {
+  rank: number;
+  name: string;
+  slug: string;
+  category: string;
+  chains: string[];
+  tvl: number | null;
+  mcap: number | null;
+  twitter: string | null;
+  url: string | null;
+  description: string | null;
+  impliedValue: number;
+  scoreParts: Record<string, number>;
+  farmPlan: string[];
+  tokenless: true;
+  wrappedReason: null;
+};
 
-function num(x: unknown): number {
-  if (x == null) return 0;
-  if (typeof x === "number") return Number.isFinite(x) ? x : 0;
-  if (typeof x === "boolean") return x ? 1 : 0;
-  const n = parseFloat(String(x).replace(/[$,]/g, ""));
-  return Number.isFinite(n) ? n : 0;
-}
+const WRAPPED_HINTS = [
+  "wrapped", "staked", "stake", "liquid staking", "lsd", "lst", "restaked", "restaking",
+  "vault", "receipt", "bridged", "canonical", "gauge", "lp token", "pt-", "yt-", "aave-v", "c-",
+];
+
+const DERIVATIVE_CATEGORY = /liquid staking|restaking|yield aggregator|cex|bridge/i;
+const DERIVATIVE_NAME = /staked|wrapped|receipt/i;
+const STRONG_CATEGORY = /dex|perp|derivativ|lending|cdp|yield|bridge|lsd|restaking|rwa|stablecoin|options|insurance|launchpad/i;
 
 function slugify(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "unknown";
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
-function asStringArray(v: unknown): string[] {
-  if (Array.isArray(v)) return v.filter((x) => typeof x === "string" && x.length > 0) as string[];
-  if (typeof v === "string" && v.length > 0) return [v];
-  return [];
+function num(v: any): number | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  const n = Number(String(v).replace(/[,$\s]/g, ""));
+  return Number.isFinite(n) ? n : null;
 }
 
-function findSnapshot(): { path: string; data: unknown } {
+function str(v: any): string | null {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  if (!s || s.toLowerCase() === "null" || s.toLowerCase() === "undefined") return null;
+  return s;
+}
+
+function walkFiles(dir: string, acc: string[] = [], depth = 0): string[] {
+  if (depth > 6 || !existsSync(dir)) return acc;
+  let entries: string[];
+  try { entries = readdirSync(dir); } catch { return acc; }
+  for (const e of entries) {
+    if (e === "node_modules" || e === ".git") continue;
+    const p = join(dir, e);
+    let st;
+    try { st = statSync(p); } catch { continue; }
+    if (st.isDirectory()) walkFiles(p, acc, depth + 1);
+    else acc.push(p);
+  }
+  return acc;
+}
+
+function parseSnapshotFile(f: string): any | null {
+  let txt: string;
+  try { txt = readFileSync(f, "utf8"); } catch { return null; }
+  try {
+    if (f.toLowerCase().endsWith(".jsonl")) {
+      const rows = txt.split(/\r?\n/).filter((l) => l.trim()).map((l) => JSON.parse(l));
+      return rows;
+    }
+    return JSON.parse(txt);
+  } catch {
+    return null;
+  }
+}
+
+function findSnapshot(): { file: string; data: any } | null {
   const candidates: string[] = [];
-  const envPath = process.env.MAKEFUN_SNAPSHOT || process.env.SNAPSHOT_PATH;
-  if (envPath) candidates.push(envPath);
-  const roots = [
-    process.cwd(),
-    __dirname,
-    join(__dirname, ".."),
-    join(__dirname, "data"),
-    join(__dirname, "snapshot"),
-    join(process.cwd(), "data"),
-  ];
+  const env = process.env.MAKEFUN_SNAPSHOT || process.env.SNAPSHOT_PATH;
+  if (env) candidates.push(resolve(env));
+  const bases = [ROOT, OUT, join(ROOT, "snapshot"), join(ROOT, "data"), join(ROOT, "vendor")];
   const seen = new Set<string>();
-  for (const r of roots) {
-    if (seen.has(r)) continue;
-    seen.add(r);
-    let entries: string[];
-    try {
-      if (!existsSync(r) || !statSync(r).isDirectory()) continue;
-      entries = readdirSync(r);
-    } catch {
-      continue;
-    }
-    for (const f of entries) {
-      if (/snapshot|protocols|defillama|llama/i.test(f) && /\.json$/i.test(f)) {
-        candidates.push(join(r, f));
-      }
+  for (const base of bases) {
+    if (!existsSync(base)) continue;
+    for (const f of walkFiles(base)) {
+      if (seen.has(f)) continue;
+      seen.add(f);
+      const low = f.toLowerCase();
+      if (!/\.(json|jsonl)$/.test(low)) continue;
+      if (/snapshot|protocols|defillama|sealed|radar/.test(low)) candidates.push(f);
     }
   }
-  const errors: string[] = [];
-  for (const c of candidates) {
-    try {
-      const raw = readFileSync(c, "utf8");
-      const data = JSON.parse(raw);
-      return { path: c, data };
-    } catch (e) {
-      errors.push(`${c}: ${(e as Error).message}`);
-    }
+  for (const f of candidates) {
+    const data = parseSnapshotFile(f);
+    if (data === null) continue;
+    if (extractList(data).length >= 20) return { file: f, data };
   }
-  const detail = errors.length ? ` Tried:\n${errors.join("\n")}` : "";
-  throw new Error(`No snapshot JSON found. Set MAKEFUN_SNAPSHOT.${detail}`);
+  return null;
 }
 
-function extractArray(data: unknown): unknown[] {
+function extractList(data: any, depth = 0): any[] {
+  if (depth > 4 || data === null || data === undefined) return [];
   if (Array.isArray(data)) return data;
-  if (data && typeof data === "object") {
-    const o = data as Record<string, unknown>;
-    if (Array.isArray(o.protocols)) return o.protocols;
-    if (Array.isArray(o.data)) return o.data;
+  if (typeof data !== "object") return [];
+  for (const k of ["protocols", "data", "rows", "items", "results", "list"]) {
+    const v = (data as any)[k];
+    if (Array.isArray(v)) return v;
+    if (v && typeof v === "object") {
+      const inner = extractList(v, depth + 1);
+      if (inner.length) return inner;
+    }
+  }
+  const vals = Object.values(data);
+  if (vals.length && vals.every((v) => v && typeof v === "object" && !Array.isArray(v))) {
+    return vals as any[];
   }
   return [];
 }
 
-function normalize(data: unknown): Proto[] {
-  const arr = extractArray(data);
-  const out: Proto[] = [];
-  const seenSlugs = new Set<string>();
-  for (const raw of arr) {
-    if (!raw || typeof raw !== "object") continue;
-    const p = raw as Record<string, any>;
-    const name = String(p.name ?? p.slug ?? "").trim();
-    if (!name) continue;
-    let slug = typeof p.slug === "string" && p.slug ? slugify(p.slug) : slugify(name);
-    if (seenSlugs.has(slug)) {
-      let i = 2;
-      while (seenSlugs.has(`${slug}-${i}`)) i++;
-      slug = `${slug}-${i}`;
-    }
-    seenSlugs.add(slug);
-    const chains = asStringArray(p.chains ?? p.chain);
-    const category =
-      typeof p.category === "string" && p.category
-        ? p.category
-        : Array.isArray(p.categories) && typeof p.categories[0] === "string"
-          ? p.categories[0]
-          : "Other";
-    const twitter =
-      typeof p.twitter === "string" ? p.twitter : typeof p.twitterHandle === "string" ? p.twitterHandle : undefined;
-    const url = typeof p.url === "string" ? p.url : typeof p.website === "string" ? p.website : undefined;
-    out.push({
-      ...p,
-      name,
-      slug,
-      category,
-      chains,
-      tvl: num(p.tvl ?? p.tvlUsd ?? p.tvl_usd ?? p.tvlUSD ?? p.tvlTotal),
-      mcap: num(p.mcap ?? p.marketCap ?? p.market_cap ?? p.fdv ?? p.mcapp),
-      twitter,
-      url,
-      description: typeof p.description === "string" ? p.description : "",
-      listedAt: num(p.listedAt ?? p.listed_at),
-      audits: p.audits ?? p.audit_links,
-    });
-  }
-  return out;
+function normalize(p: any): Proto {
+  const name = str(p.name ?? p.protocol ?? p.slug ?? p.id) ?? "unknown";
+  const slug = str(p.slug ?? p.id) ?? slugify(name);
+  const chainsRaw = Array.isArray(p.chains) ? p.chains : p.chain ? [p.chain] : [];
+  const chains = Array.from(new Set(chainsRaw.map((c: any) => str(c)).filter((c: string | null): c is string => !!c)));
+  return {
+    name,
+    slug,
+    category: str(p.category ?? p.sector),
+    chains,
+    tvl: num(p.tvl ?? p.TVL ?? p.tvlUsd ?? p.totalLiquidityUSD),
+    mcap: num(p.mcap ?? p.marketCap ?? p.market_cap ?? p.fdv),
+    twitter: str(p.twitter ?? p.twitterHandle),
+    url: str(p.url ?? p.website),
+    description: str(p.description),
+    listedAt: num(p.listedAt ?? p.listed_at ?? p.createdAt),
+    audits: p.audits ?? p.audit_links ?? null,
+    forks: num(p.forks ?? p.forkCount),
+    parentProtocol: str(p.parentProtocol ?? p.parent),
+    symbol: str(p.symbol ?? p.tokenSymbol),
+    token: str(p.token ?? p.tokenAddress ?? p.address),
+    raw: p,
+  };
 }
-
-// ---- classification ----
-const WRAPPED_RE =
-  /(wrapped|staked|restaked|liquid stak|\blsd\b|\blrt\b|receipt|bridged|wormhole|portal|canonical|derivative)/i;
-const HAS_TOKEN_HINTS = /(token|coin|ticker|symbol|gecko_?id|tokenAddress)/i;
 
 function hasToken(p: Proto): boolean {
-  for (const k of Object.keys(p)) {
-    if (!HAS_TOKEN_HINTS.test(k)) continue;
-    const v = (p as Record<string, unknown>)[k];
-    if (v == null || v === "" || v === false) continue;
-    if (Array.isArray(v) && v.length === 0) continue;
-    return true;
+  if (p.token) return true;
+  if (p.symbol) return true;
+  const r = p.raw || {};
+  for (const k of ["token", "tokenAddress", "address", "gecko_id", "geckoId", "cmcId", "symbol", "tokens"]) {
+    const v = r[k];
+    if (v === null || v === undefined) continue;
+    if (Array.isArray(v)) { if (v.length) return true; continue; }
+    if (typeof v === "string") { if (str(v)) return true; continue; }
+    if (typeof v === "number") { if (Number.isFinite(v) && v > 0) return true; }
   }
-  return p.mcap > 0;
+  return false;
 }
 
-function isWrappedOrStaked(p: Proto): boolean {
-  if (WRAPPED_RE.test(p.name)) return true;
-  const desc = p.description.toLowerCase();
-  return /\b(wrapped|staked|restaked|liquid staking|receipt token|derivative of)\b/.test(desc);
+function isWrappedOrStaked(p: Proto, all: Proto[]): { wrapped: boolean; reason: string } {
+  const n = p.name.toLowerCase();
+  const cat = String(p.category ?? "").toLowerCase();
+  for (const h of WRAPPED_HINTS) {
+    if (n.includes(h)) return { wrapped: true, reason: `name matches "${h}"` };
+  }
+  if (DERIVATIVE_CATEGORY.test(cat) && DERIVATIVE_NAME.test(n)) {
+    return { wrapped: true, reason: `category ${cat} derivative` };
+  }
+  if (p.parentProtocol) {
+    const target = p.parentProtocol.toLowerCase();
+    const parent = all.find((x) => x.slug === p.parentProtocol || x.name.toLowerCase() === target);
+    if (parent && hasToken(parent)) return { wrapped: true, reason: `derivative of ${parent.name}` };
+  }
+  return { wrapped: false, reason: "" };
 }
 
-function classify(p: Proto): Class {
-  if (hasToken(p)) return "has-token";
-  if (isWrappedOrStaked(p)) return "wrapped-staked";
-  return "no-token";
-}
-
-// ---- implied value ----
-function categoryMultiplier(cat: string): number {
-  const c = cat.toLowerCase();
-  if (/dex|exchange|amm/.test(c)) return 1.35;
-  if (/lending|cdp/.test(c)) return 1.3;
-  if (/perp|derivative|options/.test(c)) return 1.45;
-  if (/yield|farm|vault/.test(c)) return 1.1;
-  if (/bridge|cross-chain|interoperab/.test(c)) return 1.15;
-  if (/rwa|real world/.test(c)) return 1.5;
-  if (/liquid staking|lsd|restaking/.test(c)) return 1.25;
-  if (/launchpad|incubator/.test(c)) return 1.2;
-  if (/nft|gaming|metaverse/.test(c)) return 0.85;
-  if (/insurance/.test(c)) return 0.9;
-  if (/oracle/.test(c)) return 1.2;
-  return 1.0;
-}
-
-function impliedValue(p: Proto): { value: number; breakdown: Record<string, number> } {
-  const tvl = Math.max(0, p.tvl);
-  const base = tvl * 0.35;
-  const catMult = categoryMultiplier(p.category);
-  const chainBonus = 1 + Math.min(0.4, Math.max(1, p.chains.length) * 0.05);
-  const ageDays = p.listedAt > 0 ? Math.max(0, (Date.now() / 1000 - p.listedAt) / 86400) : 0;
-  const maturity = ageDays > 0 ? Math.min(1.25, 0.8 + Math.log10(1 + ageDays) * 0.15) : 1.0;
-  const auditBonus = p.audits ? 1.1 : 1.0;
-  const socialBonus = p.twitter ? 1.05 : 1.0;
-  const value = base * catMult * chainBonus * maturity * auditBonus * socialBonus;
-  return {
-    value: Math.round(value),
-    breakdown: {
-      base: Math.round(base),
-      catMult,
-      chainBonus,
-      maturity,
-      auditBonus,
-      socialBonus,
-    },
-  };
+function scoreProto(p: Proto): { value: number; parts: Record<string, number> } {
+  const tvl = p.tvl ?? 0;
+  const mcap = p.mcap ?? 0;
+  const tvlScore = tvl > 0 ? Math.log10(1 + tvl) * 22 : 0;
+  const mcapScore = mcap > 0 ? Math.log10(1 + mcap) * 14 : 0;
+  const chainScore = Math.min(p.chains.length * 4, 24);
+  const catBonus = STRONG_CATEGORY.test(String(p.category ?? "")) ? 18 : 6;
+  const age = p.listedAt ? Math.max(0, (Date.now() / 1000 - p.listedAt) / 86400) : 365;
+  const ageScore = Math.min(Math.log10(1 + age) * 6, 30);
+  const auditScore = p.audits ? Math.min(Array.isArray(p.audits) ? p.audits.length * 4 : 8, 20) : 0;
+  const forkPenalty = Math.min((p.forks ?? 0) * 1.5, 20);
+  const social = p.twitter ? 6 : 0;
+  const parts = { tvlScore, mcapScore, chainScore, catBonus, ageScore, auditScore, social, forkPenalty };
+  const value = Math.max(0, tvlScore + mcapScore + chainScore + catBonus + ageScore + auditScore + social - forkPenalty);
+  return { value: Math.round(value * 100) / 100, parts };
 }
 
 function farmPlan(p: Proto, value: number): string[] {
   const steps: string[] = [];
-  const cat = p.category.toLowerCase();
-  if (p.url) steps.push(`Open ${p.url} and connect a fresh wallet.`);
-  else steps.push(`Find ${p.name} on ${p.chains[0] || "its main chain"} and connect a fresh wallet.`);
-  if (/dex|exchange|amm/.test(cat)) steps.push("Provide liquidity to a blue-chip pair, then trade small volumes weekly.");
-  else if (/lending|cdp/.test(cat)) steps.push("Supply a stablecoin, borrow a little, and repay to build usage history.");
-  else if (/perp|derivative|options/.test(cat)) steps.push("Open and close a small perp/option position weekly to qualify.");
-  else if (/bridge|cross-chain|interoperab/.test(cat)) steps.push("Bridge a small amount back and forth across supported chains.");
-  else if (/liquid staking|lsd|restaking/.test(cat)) steps.push("Stake a small amount and hold the receipt token.");
-  else if (/yield|farm|vault/.test(cat)) steps.push("Deposit into a conservative vault and compound weekly.");
-  else if (/rwa|real world/.test(cat)) steps.push("Complete KYC if offered and hold a small position.");
-  else steps.push("Use the protocol's core action weekly with small amounts.");
-  if (p.twitter) {
-    steps.push(`Follow @${p.twitter.replace(/^@/, "")} and join the Discord/Telegram for early announcements.`);
+  const tvl = p.tvl ?? 0;
+  const chains = p.chains;
+  steps.push(`Track ${p.name} on ${chains.length ? chains.join(", ") : "its primary chain"} via DefiLlama and the team's socials for token announcements.`);
+  if (tvl > 0) {
+    steps.push(`Provide liquidity or use the protocol with a small position (TVL ~$${Math.round(tvl).toLocaleString("en-US")}) to qualify for a potential airdrop snapshot.`);
+  } else {
+    steps.push(`Engage early before TVL grows: test the product on testnet/mainnet with a small amount.`);
   }
-  steps.push(
-    `Track TVL (currently $${Math.round(p.tvl).toLocaleString()}) — a token launch is often hinted when TVL grows past $${Math.round(p.tvl * 1.5).toLocaleString()}.`,
-  );
-  steps.push(`Estimated launch value: ~$${value.toLocaleString()}.`);
+  if (p.twitter) steps.push(`Follow ${p.twitter} and join the community to catch quests, points programs and allowlists.`);
+  if (p.url) steps.push(`Register on ${p.url} and complete any points/quest campaigns.`);
+  steps.push(`Keep activity consistent across ${Math.max(1, Math.min(3, chains.length || 1))} chain(s) and document wallet addresses used.`);
+  steps.push(`Set alerts for token launch keywords; implied value score ${value.toFixed(1)} suggests ${value > 90 ? "high" : value > 50 ? "medium" : "speculative"} upside.`);
   return steps;
 }
 
-// ---- main ----
-function main() {
-  const { path, data } = findSnapshot();
-  const protos = normalize(data);
-  if (protos.length === 0) {
-    throw new Error(`Snapshot at ${path} contained no protocols.`);
-  }
-
-  const rows: any[] = [];
-  const counts = { "no-token": 0, "has-token": 0, "wrapped-staked": 0 } as Record<Class, number>;
-  for (const p of protos) {
-    const cls = classify(p);
-    counts[cls]++;
-    const iv = impliedValue(p);
+function buildBoard(snapshot: { file: string; data: any }): any {
+  const rawList = extractList(snapshot.data);
+  const all = rawList.map(normalize);
+  const seen = new Set<string>();
+  const rows: BoardRow[] = [];
+  for (const p of all) {
+    if (seen.has(p.slug)) continue;
+    seen.add(p.slug);
+    if (hasToken(p)) continue;
+    if (isWrappedOrStaked(p, all).wrapped) continue;
+    const { value, parts } = scoreProto(p);
     rows.push({
+      rank: 0,
       name: p.name,
       slug: p.slug,
-      category: p.category,
+      category: p.category ?? "unknown",
       chains: p.chains,
       tvl: p.tvl,
       mcap: p.mcap,
-      class: cls,
-      impliedValue: iv.value,
-      breakdown: iv.breakdown,
-      farmPlan: cls === "no-token" ? farmPlan(p, iv.value) : [],
-      url: p.url,
       twitter: p.twitter,
+      url: p.url,
       description: p.description,
+      impliedValue: value,
+      scoreParts: parts,
+      farmPlan: farmPlan(p, value),
+      tokenless: true,
+      wrappedReason: null,
     });
   }
-
-  const watchlist = rows
-    .filter((r) => r.class === "no-token")
-    .sort((a, b) => b.impliedValue - a.impliedValue || a.name.localeCompare(b.name));
-
-  const generatedAt = new Date().toISOString();
-  const board = {
-    generatedAt,
-    source: path,
-    totalProtocols: rows.length,
-    watchlistCount: watchlist.length,
-    rows: watchlist,
+  rows.sort((a, b) => b.impliedValue - a.impliedValue || (b.tvl ?? 0) - (a.tvl ?? 0));
+  rows.forEach((r, i) => (r.rank = i + 1));
+  return {
+    generatedAt: new Date().toISOString(),
+    snapshotFile: relative(ROOT, snapshot.file) || snapshot.file,
+    totalProtocols: all.length,
+    tokenlessCount: rows.length,
+    rows,
   };
-  writeFileSync(join(OUT, "board.json"), JSON.stringify(board, null, 2));
-
-  const dossier = {
-    generatedAt,
-    source: path,
-    totals: {
-      protocols: rows.length,
-      noToken: counts["no-token"],
-      hasToken: counts["has-token"],
-      wrappedStaked: counts["wrapped-staked"],
-    },
-    top: watchlist.slice(0, 25).map((r) => ({
-      name: r.name,
-      impliedValue: r.impliedValue,
-      tvl: r.tvl,
-      category: r.category,
-    })),
-    methodology: {
-      value: "0.35 * TVL * category multiplier * chain bonus * maturity * audit bonus * social bonus",
-      classification:
-        "has-token if token hints present; else wrapped-staked if name/desc matches wrapped/staked patterns; else no-token",
-    },
-  };
-  writeFileSync(join(OUT, "dossier.json"), JSON.stringify(dossier, null, 2));
-
-  const dash = { generatedAt, rows: watchlist, all: rows };
-  writeFileSync(join(OUT, "dashboard-data.json"), JSON.stringify(dash));
-
-  const dashDir = join(OUT, "dashboard");
-  mkdirSync(dashDir, { recursive: true });
-  writeFileSync(join(dashDir, "index.html"), dashboardHtml());
-  writeFileSync(join(dashDir, "data.json"), JSON.stringify(dash));
-
-  console.log(`Wrote board.json (${watchlist.length} rows), dossier.json, dashboard/`);
 }
 
-function dashboardHtml(): string {
+function esc(s: any): string {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
+}
+
+function renderDashboard(board: any): string {
+  const rows: BoardRow[] = board.rows;
+  const categories = Array.from(new Set(rows.map((r) => r.category))).sort();
+  const chains = Array.from(new Set(rows.flatMap((r) => r.chains))).sort();
+  const dataJs = JSON.stringify(rows).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/&/g, "\\u0026");
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Token Launch Radar</title>
 <style>
-:root{--bg:#0b0f14;--panel:#121821;--line:#1f2a37;--txt:#e6edf3;--mut:#8b98a5;--acc:#3fb950;--acc2:#58a6ff}
-*{box-sizing:border-box}body{margin:0;font:14px/1.5 ui-sans-serif,system-ui,sans-serif;background:var(--bg);color:var(--txt)}
-header{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;gap:16px;align-items:center;flex-wrap:wrap}
-h1{font-size:18px;margin:0}.badge{background:var(--panel);border:1px solid var(--line);padding:2px 8px;border-radius:999px;color:var(--mut);font-size:12px}
-main{padding:16px 20px;display:grid;gap:16px;grid-template-columns:minmax(0,1fr) 420px}
-@media(max-width:900px){main{grid-template-columns:1fr}}
-table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
-th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line);font-size:13px}
-th{color:var(--mut);font-weight:600;cursor:pointer;user-select:none}
-tr:hover td{background:#151d28;cursor:pointer}
-td.num{text-align:right;font-variant-numeric:tabular-nums}
-.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px}
-.panel h2{margin:0 0 8px;font-size:15px}
-input,select{background:#0d131b;border:1px solid var(--line);color:var(--txt);padding:6px 8px;border-radius:6px;font:inherit}
-.filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
-.steps li{margin:4px 0}.muted{color:var(--mut)}.val{color:var(--acc);font-weight:600}
+:root{--bg:#0b0f14;--panel:#121821;--line:#1f2937;--txt:#e5e7eb;--mut:#9ca3af;--acc:#22d3ee;--good:#34d399;--warn:#fbbf24}
+*{box-sizing:border-box}body{margin:0;font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--txt)}
+header{padding:18px 24px;border-bottom:1px solid var(--line);display:flex;gap:16px;align-items:baseline;flex-wrap:wrap}
+h1{font-size:20px;margin:0}h1 span{color:var(--acc)}
+.stat{color:var(--mut);font-size:12px}.stat b{color:var(--txt)}
+main{display:grid;grid-template-columns:minmax(0,1fr) 420px;gap:0;height:calc(100vh - 64px)}
+@media(max-width:900px){main{grid-template-columns:1fr;height:auto}}
+#list{overflow:auto;padding:12px 16px}
+#detail{overflow:auto;border-left:1px solid var(--line);padding:16px;background:var(--panel)}
+.controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+input,select{background:#0f1520;border:1px solid var(--line);color:var(--txt);padding:6px 10px;border-radius:6px;font-size:13px}
+input{flex:1;min-width:160px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{position:sticky;top:0;background:var(--bg);text-align:left;color:var(--mut);font-weight:500;padding:8px 6px;border-bottom:1px solid var(--line);cursor:pointer}
+td{padding:8px 6px;border-bottom:1px solid #151c26;vertical-align:top}
+tr.row{cursor:pointer}tr.row:hover{background:#0f1520}tr.sel{background:#0e2230}
+.rank{color:var(--mut);width:36px}.name{font-weight:600}.cat{color:var(--mut);font-size:11px}
+.val{color:var(--acc);font-weight:600;text-align:right;font-variant-numeric:tabular-nums}
+.bar{height:4px;background:#1f2937;border-radius:2px;margin-top:4px;overflow:hidden}.bar i{display:block;height:100%;background:linear-gradient(90deg,#0891b2,#22d3ee)}
+.tag{display:inline-block;font-size:10px;padding:1px 6px;border:1px solid var(--line);border-radius:10px;color:var(--mut);margin-right:4px}
+#detail h2{margin:0 0 4px;font-size:18px}#detail .sub{color:var(--mut);font-size:12px;margin-bottom:12px}
+.kv{display:grid;grid-template-columns:110px 1fr;gap:4px 8px;font-size:13px;margin:12px 0}.kv b{color:var(--mut);font-weight:500}
+ol{padding-left:18px}ol li{margin:6px 0}
+a{color:var(--acc)}.empty{color:var(--mut);padding:24px}
 </style></head><body>
-<header><h1>🛰️ Token Launch Radar</h1><span class="badge" id="count">loading…</span><span class="badge">no-token protocols ranked by implied launch value</span></header>
+<header><h1>Token Launch <span>Radar</span></h1>
+<div class="stat"><b>${board.totalProtocols}</b> protocols scanned · <b>${board.tokenlessCount}</b> tokenless candidates</div>
+<div class="stat">generated ${esc(board.generatedAt)}</div></header>
 <main>
-<div>
-  <div class="filters">
-    <input id="q" placeholder="Search name / category…" style="flex:1;min-width:160px">
-    <select id="cat"><option value="">All categories</option></select>
-    <select id="chain"><option value="">All chains</option></select>
-  </div>
-  <table><thead><tr>
-    <th data-k="name">Protocol</th><th data-k="category">Category</th><th data-k="tvl" class="num">TVL</th><th data-k="impliedValue" class="num">Implied value</th>
-  </tr></thead><tbody id="rows"></tbody></table>
+<section id="list">
+<div class="controls">
+<input id="q" placeholder="Search protocol, category, chain…">
+<select id="cat"><option value="">All categories</option>${categories.map((c) => `<option>${esc(c)}</option>`).join("")}</select>
+<select id="chain"><option value="">All chains</option>${chains.map((c) => `<option>${esc(c)}</option>`).join("")}</select>
+<select id="minv"><option value="0">Any value</option><option value="50">Value ≥ 50</option><option value="80">Value ≥ 80</option><option value="100">Value ≥ 100</option></select>
 </div>
-<div class="panel" id="detail"><h2>Select a protocol</h2><p class="muted">Click a row to see the detail view and farm plan.</p></div>
+<table><thead><tr><th>#</th><th>Protocol</th><th>Chains</th><th style="text-align:right">TVL</th><th style="text-align:right">Implied value</th></tr></thead>
+<tbody id="tbody"></tbody></table>
+</section>
+<aside id="detail"><div class="empty">Select a protocol to see its detail view and farm plan.</div></aside>
 </main>
 <script>
-let DATA=null, sortK="impliedValue", sortDir=-1, sel=null;
-const fmt=n=>n>=1e9?(n/1e9).toFixed(2)+"B":n>=1e6?(n/1e6).toFixed(2)+"M":n>=1e3?(n/1e3).toFixed(1)+"K":String(Math.round(n||0));
-const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-async function boot(){
-  try{
-    const r=await fetch("data.json");DATA=await r.json();
-  }catch(e){
-    document.getElementById("count").textContent="failed to load data.json";
-    return;
-  }
-  const cats=[...new Set(DATA.rows.map(x=>x.category))].sort();
-  const chains=[...new Set(DATA.rows.flatMap(x=>x.chains||[]))].sort();
-  for(const c of cats)cat.add(new Option(c,c));
-  for(const c of chains)chain.add(new Option(c,c));
-  count.textContent=DATA.rows.length+" watchlist / "+DATA.all.length+" protocols";
-  render();
-}
-function render(){
-  const q=document.getElementById("q").value.toLowerCase();
-  const c=document.getElementById("cat").value, ch=document.getElementById("chain").value;
-  let rows=DATA.rows.filter(r=>(!q||r.name.toLowerCase().includes(q)||(r.category||"").toLowerCase().includes(q))&&(!c||r.category===c)&&(!ch||(r.chains||[]).includes(ch)));
-  rows.sort((a,b)=>{const x=a[sortK],y=b[sortK];return (typeof x==="string"?x.localeCompare(y):(x-y))*sortDir;});
-  document.getElementById("rows").innerHTML=rows.map(r=>\`<tr data-slug="\${esc(r.slug)}"><td>\${esc(r.name)}</td><td class="muted">\${esc(r.category)}</td><td class="num">$\${fmt(r.tvl)}</td><td class="num val">$\${fmt(r.impliedValue)}</td></tr>\`).join("");
-  document.querySelectorAll("#rows tr").forEach(tr=>tr.onclick=()=>{sel=DATA.rows.find(x=>x.slug===tr.dataset.slug);showDetail();});
-}
-function showDetail(){
-  if(!sel)return;
-  const d=document.getElementById("detail");
-  d.innerHTML=\`<h2>\${esc(sel.name)}</h2>
-    <p class="muted">\${esc(sel.category)} · \${esc((sel.chains||[]).join(", ")||"—")}</p>
-    <p><b>TVL:</b> $\${fmt(sel.tvl)} &nbsp; <b>Implied value:</b> <span class="val">$\${fmt(sel.impliedValue)}</span></p>
-    <p class="muted">\${esc(sel.description||"")}</p>
-    <h2>Farm plan</h2><ol class="steps">\${(sel.farmPlan||[]).map(s=>\`<li>\${esc(s)}</li>\`).join("")}</ol>\`;
-}
-document.getElementById("q").oninput=render;
-document.getElementById("cat").onchange=render;
-document.getElementById("chain").onchange=render;
-document.querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(sortK===k)sortDir*=-1;else{sortK=k;sortDir=-1;}render();});
-boot();
-</script></body></html>`;
-}
-
-try {
-  main();
-} catch (e) {
-  console.error(`token-radar: ${(e as Error).message}`);
-  process.exitCode = 1;
-}
+const ROWS=${dataJs};
+const els={q:document.getElementById('q'),cat:document.getElementById('cat'),chain:document.getElementById('chain'),minv:document.getElementById('minv'),tbody:document.getElementById('tbody'),detail:document.getElementById('detail')};
+let sel=null;
+function fmt(n){if(n==null)return '—';if(n>=1e9)return '$'+(n/1e9).toFixed(2)+'B';if(n>=1e6)return '$'+(n/1e6).toFixed(2)+'M';if(n>=1e3)return '$'+(n/1e3).toFixed(1)+'K';return '$'+Math.round(n)}
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function filtered(){const q=els.q.value.toLowerCase(),c=els.cat.value,ch=els.chain.value,mv=Number(els.minv.value)||0;
+return ROWS.filter(r=>r.impliedValue>=mv&&(!c||r.category===c)&&(!ch||r.chains.includes(ch))&&(!q||(r.name+' '+r.category+' '+r.chains.join(' ')+' '+(r.description||'')).toLowerCase().includes(q)))}
+function render(){const rows=filtered();const max=Math.max(1,...ROWS.map(r=>r.impliedValue));
+els.tbody.innerHTML=rows.length?rows.map(r=>'<tr class="row'+(sel===r.slug?' sel':'')+'" data-slug="'+esc(r.slug)+'"><td class="rank">'+r.rank+'</td><td><div class="name">'+esc(r.name)+'</div><div class="cat">'+esc(r.category)+'</div></td><td>'+r.chains.slice(0,3).map(x=>'<span class="tag">'+esc(x)+'</span>').join('')+'</td><td style="text-align:right;color:var(--mut)">'+fmt(r.tvl)+'</td><td class="val">'+r.impliedValue.toFixed(1)+'<div

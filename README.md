@@ -1,15 +1,15 @@
-# Token Launch Radar — pre-token protocol board, detail views and farm plans
+# Token Launch Radar
 
 [![make.fun · token-radar-01](https://make.fun/badge/token-radar-01.svg)](https://make.fun/bounty/token-radar-01)
 [![rank](https://make.fun/badge/token-radar-01/rqzaxbot2-oss/makefun-token-radar-01-endync/rank.svg)](https://make.fun/bounty/token-radar-01/leaderboard)
 [![reward](https://make.fun/badge/token-radar-01/rqzaxbot2-oss/makefun-token-radar-01-endync/reward.svg)](https://make.fun/bounty/token-radar-01)
 
-Reads a sealed DefiLlama snapshot, filters protocols with no tradable token (excluding wrapped/staked derivatives), scores implied launch value, and ships a static offline dashboard with board, per-protocol detail and farm plans.
+Ranks every DefiLlama protocol that has no token (excluding wrapped/staked derivatives) by implied launch value, with a static dashboard: board, per-protocol detail views, filters and farm plans.
 
 ## Run it
 
 ```sh
-node main.ts
+MAKEFUN_OUTPUT_DIR=./out node main.ts
 ```
 
 ---

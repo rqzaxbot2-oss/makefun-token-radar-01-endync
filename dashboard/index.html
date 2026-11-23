@@ -3,315 +3,294 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Token Launch Radar</title>
+<title>Token Launch Radar — pre-token protocols ranked by launch value</title>
 <style>
-  :root{
-    --bg:#0b0f14; --panel:#121821; --panel2:#0f151d; --line:#1f2a37;
-    --txt:#e6edf3; --dim:#8b98a5; --accent:#3fb950; --accent2:#58a6ff;
-    --warn:#d29922; --hot:#f85149; --chip:#1b2430;
+  :root {
+    --bg: #0b0e14; --panel: #121722; --panel2: #182030; --line: #24304a;
+    --ink: #e8edf7; --dim: #8b98b3; --accent: #4fd1c5; --accent2: #f6ad55;
+    --good: #68d391; --bad: #fc8181; --warn: #f6e05e;
   }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-  header{position:sticky;top:0;z-index:10;background:linear-gradient(180deg,#0b0f14f2,#0b0f14e0);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:14px 20px}
-  .brand{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-  .brand h1{font-size:18px;margin:0;letter-spacing:.3px}
-  .brand .sub{color:var(--dim);font-size:12px}
-  .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--accent)}
-  .controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;align-items:center}
-  input[type=search],select{background:var(--panel);border:1px solid var(--line);color:var(--txt);padding:8px 10px;border-radius:8px;font-size:13px;outline:none}
-  input[type=search]{min-width:240px;flex:1 1 240px}
-  input[type=search]:focus,select:focus{border-color:var(--accent2)}
-  .toggle{display:flex;gap:6px;flex-wrap:wrap}
-  .toggle button{background:var(--panel);border:1px solid var(--line);color:var(--dim);padding:7px 11px;border-radius:8px;cursor:pointer;font-size:12px}
-  .toggle button.on{color:var(--txt);border-color:var(--accent2);background:#16202c}
-  main{padding:18px 20px 60px;max-width:1280px;margin:0 auto}
-  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
-  .stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
-  .stat .k{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.6px}
-  .stat .v{font-size:20px;font-weight:600;margin-top:2px}
-  table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
-  thead th{position:sticky;top:0;background:var(--panel2);color:var(--dim);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.6px;text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);cursor:pointer;user-select:none;white-space:nowrap}
-  thead th:hover{color:var(--txt)}
-  tbody td{padding:10px 12px;border-bottom:1px solid #16202b;vertical-align:top}
-  tbody tr{cursor:pointer}
-  tbody tr:hover{background:#141c26}
-  tbody tr:last-child td{border-bottom:none}
-  .rank{color:var(--dim);font-variant-numeric:tabular-nums;width:44px}
-  .name{font-weight:600}
-  .cat{color:var(--dim);font-size:12px}
-  .val{font-variant-numeric:tabular-nums;font-weight:600;color:var(--accent);white-space:nowrap}
-  .score{font-variant-numeric:tabular-nums;color:var(--accent2);white-space:nowrap}
-  .chips{display:flex;gap:5px;flex-wrap:wrap}
-  .chip{background:var(--chip);border:1px solid var(--line);color:var(--dim);font-size:11px;padding:2px 7px;border-radius:20px;white-space:nowrap}
-  .chip.hot{color:var(--hot);border-color:#4a1f1f}
-  .chip.warn{color:var(--warn);border-color:#3d3317}
-  .empty{padding:40px;text-align:center;color:var(--dim)}
-  .detail{position:fixed;inset:0;background:#05080bcc;display:none;z-index:50;overflow:auto;padding:30px 16px}
-  .detail.open{display:block}
-  .card{max-width:820px;margin:0 auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px 24px}
-  .card h2{margin:0 0 2px;font-size:22px}
-  .card .meta{color:var(--dim);font-size:13px;margin-bottom:16px}
-  .close{float:right;background:var(--panel2);border:1px solid var(--line);color:var(--dim);border-radius:8px;padding:6px 10px;cursor:pointer}
-  .close:hover{color:var(--txt)}
-  .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin:14px 0}
-  .kv{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
-  .kv .k{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
-  .kv .v{font-size:16px;font-weight:600;margin-top:2px}
-  h3{font-size:13px;text-transform:uppercase;letter-spacing:.7px;color:var(--dim);margin:20px 0 8px}
-  ol.steps{margin:0;padding-left:20px}
-  ol.steps li{margin:6px 0}
-  .why{background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--accent2);border-radius:8px;padding:10px 12px;color:#c9d3dd}
-  .bar{height:6px;background:#1b2430;border-radius:4px;overflow:hidden;margin-top:6px}
-  .bar > i{display:block;height:100%;background:linear-gradient(90deg,var(--accent2),var(--accent))}
-  footer{color:var(--dim);font-size:12px;text-align:center;padding:20px}
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  header { padding: 18px 22px 12px; border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #0f1522, #0b0e14); position: sticky; top: 0; z-index: 5; }
+  h1 { margin: 0; font-size: 20px; letter-spacing: .2px; }
+  h1 span { color: var(--accent); }
+  .sub { color: var(--dim); font-size: 12.5px; margin-top: 3px; }
+  .stats { display: flex; gap: 18px; margin-top: 10px; flex-wrap: wrap; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 6px 12px; font-size: 12px; color: var(--dim); }
+  .stat b { color: var(--ink); font-size: 15px; margin-left: 6px; }
+  main { display: grid; grid-template-columns: 1fr 460px; gap: 0; min-height: calc(100vh - 120px); }
+  @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+  .left { padding: 14px 18px 40px; min-width: 0; }
+  .right { border-left: 1px solid var(--line); background: var(--panel); padding: 16px 18px 60px;
+    position: sticky; top: 118px; height: calc(100vh - 118px); overflow-y: auto; }
+  @media (max-width: 1000px) { .right { position: static; height: auto; border-left: 0; border-top: 1px solid var(--line); } }
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  input[type=search], select { background: var(--panel2); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 7px; padding: 7px 10px; font-size: 13px; outline: none; }
+  input[type=search] { min-width: 220px; flex: 1; }
+  input[type=search]:focus, select:focus { border-color: var(--accent); }
+  .chip { background: var(--panel2); border: 1px solid var(--line); color: var(--dim);
+    border-radius: 999px; padding: 5px 11px; font-size: 12px; cursor: pointer; user-select: none; }
+  .chip.on { background: rgba(79,209,197,.15); border-color: var(--accent); color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th { text-align: left; color: var(--dim); font-weight: 600; font-size: 11.5px;
+    text-transform: uppercase; letter-spacing: .5px; padding: 8px 8px; border-bottom: 1px solid var(--line);
+    cursor: pointer; position: sticky; top: 0; background: var(--bg); }
+  thead th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tbody tr { border-bottom: 1px solid #1a2233; cursor: pointer; }
+  tbody tr:hover { background: #141c2b; }
+  tbody tr.sel { background: rgba(79,209,197,.08); }
+  td { padding: 8px 8px; vertical-align: top; }
+  .rank { color: var(--dim); font-variant-numeric: tabular-nums; width: 34px; }
+  .name { font-weight: 600; }
+  .cat { color: var(--dim); font-size: 11.5px; }
+  .val { color: var(--accent2); font-weight: 600; }
+  .conf { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; }
+  .conf.high { background: rgba(104,211,145,.15); color: var(--good); }
+  .conf.med { background: rgba(246,224,94,.13); color: var(--warn); }
+  .conf.low { background: rgba(252,129,129,.13); color: var(--bad); }
+  .why { color: var(--dim); font-size: 12px; max-width: 420px; }
+  .right h2 { margin: 0 0 2px; font-size: 18px; }
+  .right .meta { color: var(--dim); font-size: 12px; margin-bottom: 12px; }
+  .kv { display: grid; grid-template-columns: 130px 1fr; gap: 6px 10px; font-size: 13px; margin-bottom: 14px; }
+  .kv .k { color: var(--dim); }
+  .box { background: var(--panel2); border: 1px solid var(--line); border-radius: 9px; padding: 11px 12px; margin-bottom: 12px; }
+  .box h3 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--accent); }
+  ol.steps { margin: 0; padding-left: 18px; }
+  ol.steps li { margin-bottom: 7px; }
+  .tag { display: inline-block; background: #1d2740; border: 1px solid var(--line); border-radius: 6px;
+    padding: 1px 7px; font-size: 11.5px; margin: 0 4px 4px 0; color: var(--dim); }
+  .empty { color: var(--dim); padding: 30px 10px; text-align: center; }
+  .bar { height: 6px; background: #1d2740; border-radius: 4px; overflow: hidden; margin-top: 4px; }
+  .bar > i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+  .note { color: var(--dim); font-size: 11.5px; margin-top: 10px; }
+  .pill { font-size: 11px; color: var(--dim); border: 1px dashed var(--line); border-radius: 6px; padding: 2px 7px; }
+  a { color: var(--accent); }
 </style>
 </head>
 <body>
 <header>
-  <div class="brand">
-    <span class="dot"></span>
-    <h1>Token Launch Radar</h1>
-    <span class="sub" id="sub">loading board…</span>
-  </div>
-  <div class="controls">
-    <input type="search" id="q" placeholder="Search protocol, category, chain…" autocomplete="off">
-    <select id="cat"><option value="">All categories</option></select>
-    <div class="toggle" id="toggles">
-      <button data-f="all" class="on">All</button>
-      <button data-f="top">Top 25</button>
-      <button data-f="nodep">No token yet</button>
-      <button data-f="high">High value</button>
-    </div>
-  </div>
+  <h1>Token Launch <span>Radar</span></h1>
+  <div class="sub">Protocols DefiLlama tracks that record <b>no token</b> and are not a wrapped/staked product of one that trades — ranked by what a launch would be worth.</div>
+  <div class="stats" id="stats"></div>
 </header>
 <main>
-  <div class="stats" id="stats"></div>
-  <table>
-    <thead>
-      <tr>
-        <th data-sort="rank">#</th>
-        <th data-sort="name">Protocol</th>
-        <th data-sort="category">Category</th>
-        <th data-sort="value">Implied value</th>
-        <th data-sort="score">Launch score</th>
-        <th>Signals</th>
-      </tr>
-    </thead>
-    <tbody id="rows"></tbody>
-  </table>
-  <div class="empty" id="empty" style="display:none">No protocols match this filter.</div>
-  <footer>Offline snapshot · ranked by what a launch would be worth · click any row for the farm plan</footer>
+  <section class="left">
+    <div class="filters">
+      <input type="search" id="q" placeholder="Search protocol, category, chain…" autocomplete="off">
+      <select id="cat"><option value="">All categories</option></select>
+      <select id="chain"><option value="">All chains</option></select>
+      <select id="conf">
+        <option value="">Any confidence</option>
+        <option value="high">High</option>
+        <option value="med">Medium</option>
+        <option value="low">Low</option>
+      </select>
+      <span class="chip" id="farmchip">Has farm plan</span>
+      <span class="chip" id="clearchip">Reset</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th data-sort="rank">#</th>
+          <th data-sort="name">Protocol</th>
+          <th data-sort="category">Category</th>
+          <th data-sort="chains">Chains</th>
+          <th data-sort="tvl" class="num">TVL</th>
+          <th data-sort="impliedValue" class="num">Implied value</th>
+          <th data-sort="confidence">Conf.</th>
+          <th data-sort="why">Why it ranks</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="empty" id="empty" style="display:none">No protocols match these filters.</div>
+    <div class="note" id="shown"></div>
+  </section>
+  <aside class="right" id="detail">
+    <div class="empty">Select a protocol on the board to see its detail and farm plan.</div>
+  </aside>
 </main>
-
-<div class="detail" id="detail">
-  <div class="card" id="card"></div>
-</div>
-
 <script>
-(function(){
+(function () {
   "use strict";
-  var BOARD = window.__BOARD__ || null;
-  var rows = [];
-  var state = { q:"", cat:"", filter:"all", sort:"rank", dir:1 };
+  var DATA = null, ROWS = [], state = { q: "", cat: "", chain: "", conf: "", farm: false, sort: "rank", dir: 1, sel: null };
 
-  function esc(s){
-    return String(s==null?"":s).replace(/[&<>"']/g,function(c){
-      return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
     });
   }
-  function num(v){ return typeof v==="number" && isFinite(v) ? v : 0; }
-  function money(v){
-    v = num(v);
-    if(v >= 1e9) return "$"+(v/1e9).toFixed(2)+"B";
-    if(v >= 1e6) return "$"+(v/1e6).toFixed(2)+"M";
-    if(v >= 1e3) return "$"+(v/1e3).toFixed(1)+"K";
-    return "$"+v.toFixed(0);
+  function fmtUsd(n) {
+    if (n == null || isNaN(n)) return "—";
+    var a = Math.abs(n);
+    if (a >= 1e9) return "$" + (n / 1e9).toFixed(2) + "B";
+    if (a >= 1e6) return "$" + (n / 1e6).toFixed(2) + "M";
+    if (a >= 1e3) return "$" + (n / 1e3).toFixed(1) + "K";
+    return "$" + Math.round(n);
   }
-  function pct(v){ return (num(v)*100).toFixed(0)+"%"; }
-
-  function normalize(b){
-    var list = [];
-    if(Array.isArray(b)) list = b;
-    else if(b && Array.isArray(b.board)) list = b.board;
-    else if(b && Array.isArray(b.rows)) list = b.rows;
-    else if(b && Array.isArray(b.protocols)) list = b.protocols;
-    return list.map(function(r,i){
-      var name = r.name || r.protocol || r.slug || ("protocol-"+i);
-      var value = num(r.impliedValue != null ? r.impliedValue : (r.value != null ? r.value : r.valuation));
-      var score = num(r.launchScore != null ? r.launchScore : (r.score != null ? r.score : r.rankScore));
-      var plan = r.farmPlan || r.farm || r.plan || [];
-      if(typeof plan === "string") plan = [plan];
+  function confClass(c) {
+    var s = String(c || "").toLowerCase();
+    if (s.indexOf("high") === 0) return "high";
+    if (s.indexOf("med") === 0) return "med";
+    return "low";
+  }
+  function chainsOf(r) {
+    if (Array.isArray(r.chains)) return r.chains;
+    if (typeof r.chains === "string" && r.chains) return r.chains.split(/[,;|]/).map(function (x) { return x.trim(); });
+    return r.chain ? [r.chain] : [];
+  }
+  function stepsOf(r) {
+    var p = r.farmPlan || r.farm_plan || r.plan;
+    if (!p) return [];
+    if (Array.isArray(p)) return p;
+    if (Array.isArray(p.steps)) return p.steps;
+    return [];
+  }
+  function normalize(raw) {
+    var list = Array.isArray(raw) ? raw : (raw && (raw.rows || raw.board || raw.protocols)) || [];
+    return list.map(function (r, i) {
+      var chains = chainsOf(r);
+      var val = r.impliedValue != null ? r.impliedValue : (r.implied_value != null ? r.implied_value : r.value);
       return {
-        rank: num(r.rank) || (i+1),
-        name: name,
-        slug: r.slug || name.toLowerCase().replace(/[^a-z0-9]+/g,"-"),
-        category: r.category || r.sector || "Other",
-        chains: r.chains || r.chain || [],
-        value: value,
-        score: score,
-        hasToken: r.hasToken === true || r.token === true,
-        tvl: num(r.tvl),
-        revenue: num(r.revenue != null ? r.revenue : r.fees),
-        volume: num(r.volume),
-        users: num(r.users != null ? r.users : r.activeUsers),
-        why: r.why || r.rationale || "",
-        plan: plan,
-        signals: r.signals || [],
-        url: r.url || ""
+        rank: r.rank != null ? r.rank : i + 1,
+        name: r.name || r.protocol || r.slug || ("Protocol " + (i + 1)),
+        slug: r.slug || r.name || r.protocol || "",
+        category: r.category || r.sector || "—",
+        chains: chains,
+        tvl: r.tvl != null ? Number(r.tvl) : null,
+        impliedValue: val != null ? Number(val) : null,
+        confidence: r.confidence || r.conf || "low",
+        why: r.why || r.rationale || r.reason || "",
+        farmPlan: r,
+        raw: r
       };
     });
   }
 
-  function init(){
-    rows = normalize(BOARD);
-    rows.sort(function(a,b){ return a.rank - b.rank; });
-    var cats = {};
-    rows.forEach(function(r){ cats[r.category] = (cats[r.category]||0)+1; });
-    var sel = document.getElementById("cat");
-    Object.keys(cats).sort().forEach(function(c){
-      var o = document.createElement("option");
-      o.value = c; o.textContent = c+" ("+cats[c]+")";
-      sel.appendChild(o);
+  function buildFilters() {
+    var cats = {}, chs = {};
+    ROWS.forEach(function (r) {
+      if (r.category && r.category !== "—") cats[r.category] = 1;
+      r.chains.forEach(function (c) { if (c) chs[c] = 1; });
     });
-    document.getElementById("sub").textContent = rows.length+" protocols · no token yet · ranked by launch value";
-    renderStats();
-    render();
-    bind();
+    var catSel = document.getElementById("cat"), chSel = document.getElementById("chain");
+    Object.keys(cats).sort().forEach(function (c) {
+      var o = document.createElement("option"); o.value = c; o.textContent = c; catSel.appendChild(o);
+    });
+    Object.keys(chs).sort().forEach(function (c) {
+      var o = document.createElement("option"); o.value = c; o.textContent = c; chSel.appendChild(o);
+    });
   }
 
-  function renderStats(){
-    var total = rows.length;
-    var sum = rows.reduce(function(a,r){ return a + r.value; }, 0);
-    var top = rows.slice().sort(function(a,b){ return b.value - a.value; })[0];
-    var high = rows.filter(function(r){ return r.score >= 70 || r.value >= 1e9; }).length;
-    var el = document.getElementById("stats");
-    el.innerHTML =
-      stat("Protocols tracked", total) +
-      stat("Combined implied value", money(sum)) +
-      stat("Highest value", top ? esc(top.name) : "—") +
-      stat("High-conviction", high);
-  }
-  function stat(k,v){ return '<div class="stat"><div class="k">'+esc(k)+'</div><div class="v">'+v+'</div></div>'; }
-
-  function passes(r){
-    if(state.cat && r.category !== state.cat) return false;
-    if(state.q){
-      var q = state.q.toLowerCase();
-      var hay = (r.name+" "+r.category+" "+r.chains.join(" ")+" "+r.why).toLowerCase();
-      if(hay.indexOf(q) === -1) return false;
-    }
-    switch(state.filter){
-      case "top": return r.rank <= 25;
-      case "nodep": return !r.hasToken;
-      case "high": return r.score >= 60 || r.value >= 5e8;
-      default: return true;
-    }
+  function stats() {
+    var total = ROWS.length;
+    var sum = 0, farm = 0, high = 0;
+    ROWS.forEach(function (r) {
+      if (r.impliedValue) sum += r.impliedValue;
+      if (stepsOf(r).length) farm++;
+      if (confClass(r.confidence) === "high") high++;
+    });
+    document.getElementById("stats").innerHTML =
+      '<div class="stat">Watchlist<b>' + total + "</b></div>" +
+      '<div class="stat">Combined implied value<b>' + fmtUsd(sum) + "</b></div>" +
+      '<div class="stat">With farm plan<b>' + farm + "</b></div>" +
+      '<div class="stat">High confidence<b>' + high + "</b></div>";
   }
 
-  function render(){
-    var list = rows.filter(passes);
-    if(state.sort !== "rank"){
-      list.sort(function(a,b){
-        var av = a[state.sort], bv = b[state.sort];
-        if(typeof av === "string") return av.localeCompare(bv) * state.dir;
-        return (av - bv) * state.dir;
-      });
-    }
+  function filtered() {
+    var q = state.q.toLowerCase();
+    var out = ROWS.filter(function (r) {
+      if (state.cat && r.category !== state.cat) return false;
+      if (state.chain && r.chains.indexOf(state.chain) === -1) return false;
+      if (state.conf && confClass(r.confidence) !== state.conf) return false;
+      if (state.farm && !stepsOf(r).length) return false;
+      if (q) {
+        var hay = (r.name + " " + r.category + " " + r.chains.join(" ") + " " + r.why).toLowerCase();
+        if (hay.indexOf(q) === -1) return false;
+      }
+      return true;
+    });
+    var key = state.sort, dir = state.dir;
+    out.sort(function (a, b) {
+      var x = a[key], y = b[key];
+      if (key === "chains") { x = a.chains.length; y = b.chains.length; }
+      if (key === "confidence") { x = confClass(a.confidence); y = confClass(b.confidence); }
+      if (typeof x === "string" || typeof y === "string") {
+        x = String(x == null ? "" : x).toLowerCase(); y = String(y == null ? "" : y).toLowerCase();
+        return x < y ? -dir : x > y ? dir : 0;
+      }
+      x = x == null ? -Infinity : x; y = y == null ? -Infinity : y;
+      return x < y ? -dir : x > y ? dir : 0;
+    });
+    return out;
+  }
+
+  function render() {
+    var rows = filtered();
     var tb = document.getElementById("rows");
-    var maxVal = rows.reduce(function(m,r){ return Math.max(m, r.value); }, 1);
-    tb.innerHTML = list.map(function(r){
-      var chips = [];
-      if(!r.hasToken) chips.push('<span class="chip hot">no token</span>');
-      if(r.value >= 1e9) chips.push('<span class="chip warn">≥$1B</span>');
-      if(r.score >= 70) chips.push('<span class="chip">hot</span>');
-      (r.signals||[]).slice(0,2).forEach(function(s){ chips.push('<span class="chip">'+esc(s)+'</span>'); });
-      return '<tr data-slug="'+esc(r.slug)+'">'+
-        '<td class="rank">'+r.rank+'</td>'+
-        '<td><div class="name">'+esc(r.name)+'</div><div class="cat">'+esc((r.chains||[]).join(" · ")||"")+'</div></td>'+
-        '<td class="cat">'+esc(r.category)+'</td>'+
-        '<td class="val">'+money(r.value)+'<div class="bar"><i style="width:'+Math.max(4,(r.value/maxVal*100)).toFixed(1)+'%"></i></div></td>'+
-        '<td class="score">'+r.score.toFixed(1)+'</td>'+
-        '<td><div class="chips">'+chips.join("")+'</div></td>'+
-      '</tr>';
+    var maxVal = 1;
+    rows.forEach(function (r) { if (r.impliedValue && r.impliedValue > maxVal) maxVal = r.impliedValue; });
+    tb.innerHTML = rows.map(function (r) {
+      var cc = confClass(r.confidence);
+      var pct = r.impliedValue ? Math.max(3, Math.round(100 * r.impliedValue / maxVal)) : 0;
+      return '<tr data-slug="' + esc(r.slug) + '"' + (state.sel === r.slug ? ' class="sel"' : "") + ">" +
+        '<td class="rank">' + r.rank + "</td>" +
+        '<td><div class="name">' + esc(r.name) + '</div><div class="cat">' + esc(r.slug) + "</div></td>" +
+        '<td class="cat">' + esc(r.category) + "</td>" +
+        '<td class="cat">' + esc(r.chains.slice(0, 3).join(", ") || "—") + (r.chains.length > 3 ? " +" + (r.chains.length - 3) : "") + "</td>" +
+        '<td class="num">' + fmtUsd(r.tvl) + "</td>" +
+        '<td class="num"><span class="val">' + fmtUsd(r.impliedValue) + '</span><div class="bar"><i style="width:' + pct + '%"></i></div></td>' +
+        '<td><span class="conf ' + cc + '">' + esc(r.confidence) + "</span></td>" +
+        '<td class="why">' + esc(r.why) + "</td>" +
+        "</tr>";
     }).join("");
-    document.getElementById("empty").style.display = list.length ? "none" : "block";
-  }
-
-  function bind(){
-    document.getElementById("q").addEventListener("input", function(e){
-      state.q = e.target.value.trim(); render();
-    });
-    document.getElementById("cat").addEventListener("change", function(e){
-      state.cat = e.target.value; render();
-    });
-    document.querySelectorAll("#toggles button").forEach(function(b){
-      b.addEventListener("click", function(){
-        document.querySelectorAll("#toggles button").forEach(function(x){ x.classList.remove("on"); });
-        b.classList.add("on");
-        state.filter = b.getAttribute("data-f");
-        render();
-      });
-    });
-    document.querySelectorAll("thead th[data-sort]").forEach(function(th){
-      th.addEventListener("click", function(){
-        var s = th.getAttribute("data-sort");
-        if(state.sort === s) state.dir *= -1;
-        else { state.sort = s; state.dir = (s === "rank") ? 1 : -1; }
-        render();
-      });
-    });
-    document.getElementById("rows").addEventListener("click", function(e){
-      var tr = e.target.closest("tr[data-slug]");
-      if(tr) openDetail(tr.getAttribute("data-slug"));
-    });
-    document.getElementById("detail").addEventListener("click", function(e){
-      if(e.target.id === "detail" || e.target.classList.contains("close")) closeDetail();
-    });
-    document.addEventListener("keydown", function(e){
-      if(e.key === "Escape") closeDetail();
+    document.getElementById("empty").style.display = rows.length ? "none" : "block";
+    document.getElementById("shown").textContent = "Showing " + rows.length + " of " + ROWS.length + " protocols" +
+      (state.sort !== "rank" || state.dir !== 1 ? " · sorted by " + state.sort : "");
+    Array.prototype.forEach.call(tb.querySelectorAll("tr"), function (tr) {
+      tr.addEventListener("click", function () { select(tr.getAttribute("data-slug")); });
     });
   }
 
-  function openDetail(slug){
-    var r = rows.filter(function(x){ return x.slug === slug; })[0];
-    if(!r) return;
-    var steps = (r.plan && r.plan.length) ? r.plan : [
-      "Bridge or deposit into the protocol's core liquidity pools.",
-      "Provide liquidity or stake to accrue points / usage weight.",
-      "Track governance and snapshot announcements for a token event.",
-      "Keep positions active through the launch snapshot window."
-    ];
-    var card = document.getElementById("card");
-    card.innerHTML =
-      '<button class="close">✕ close</button>'+
-      '<h2>'+esc(r.name)+'</h2>'+
-      '<div class="meta">'+esc(r.category)+' · rank #'+r.rank+' · '+esc((r.chains||[]).join(", ")||"multi-chain")+'</div>'+
-      '<div class="grid2">'+
-        kv("Implied value", money(r.value))+
-        kv("Launch score", r.score.toFixed(1))+
-        kv("TVL", money(r.tvl))+
-        kv("Revenue / fees", money(r.revenue))+
-        kv("Volume", money(r.volume))+
-        kv("Users", r.users ? r.users.toLocaleString() : "—")+
-      '</div>'+
-      (r.why ? '<h3>Why it is a launch candidate</h3><div class="why">'+esc(r.why)+'</div>' : "")+
-      '<h3>Farm plan</h3><ol class="steps">'+steps.map(function(s){ return "<li>"+esc(s)+"</li>"; }).join("")+'</ol>'+
-      ((r.signals&&r.signals.length) ? '<h3>Signals</h3><div class="chips">'+r.signals.map(function(s){ return '<span class="chip">'+esc(s)+'</span>'; }).join("")+'</div>' : "");
-    document.getElementById("detail").classList.add("open");
-  }
-  function kv(k,v){ return '<div class="kv"><div class="k">'+esc(k)+'</div><div class="v">'+v+'</div></div>'; }
-  function closeDetail(){ document.getElementById("detail").classList.remove("open"); }
-
-  function boot(){
-    if(BOARD){ init(); return; }
-    fetch("board.json").then(function(r){ return r.json(); }).then(function(b){
-      window.__BOARD__ = b; init();
-    }).catch(function(){
-      document.getElementById("sub").textContent = "board.json not found — embed window.__BOARD__ or serve alongside board.json";
+  function select(slug) {
+    state.sel = slug;
+    var r = ROWS.filter(function (x) { return x.slug === slug; })[0];
+    var d = document.getElementById("detail");
+    if (!r) { d.innerHTML = '<div class="empty">Select a protocol on the board.</div>'; return; }
+    var steps = stepsOf(r);
+    var raw = r.raw || {};
+    var extra = [];
+    ["tokenStatus", "token_status", "notes", "note", "tvlSource", "launchScore", "score", "fdvMultiple", "fdv_multiple"].forEach(function (k) {
+      if (raw[k] != null && raw[k] !== "") extra.push([k, raw[k]]);
     });
+    d.innerHTML =
+      "<h2>" + esc(r.name) + "</h2>" +
+      '<div class="meta">Rank #' + r.rank + " · " + esc(r.category) + " · " + esc(r.chains.join(", ") || "—") + "</div>" +
+      '<div class="kv">' +
+        '<div class="k">Implied value</div><div><b class="val">' + fmtUsd(r.impliedValue) + "</b></div>" +
+        '<div class="k">TVL</div><div>' + fmtUsd(r.tvl) + "</div>" +
+        '<div class="k">Confidence</div><div><span class="conf ' + confClass(r.confidence) + '">' + esc(r.confidence) + "</span></div>" +
+        '<div class="k">Token status</div><div><span class="pill">no token recorded</span></div>' +
+        extra.map(function (e) { return '<div class="k">' + esc(e[0]) + "</div><div>" + esc(e[1]) + "</div>"; }).join("") +
+      "</div>" +
+      '<div class="box"><h3>Why it ranks here</h3><div>' + esc(r.why || "No rationale recorded.") + "</div></div>" +
+      '<div class="box"><h3>Farm plan</h3>' +
+        (steps.length
+          ? '<ol class="steps">' + steps.map(function (s) { return "<li>" + esc(typeof s === "string" ? s : (s.text || s.step || JSON.stringify(s))) + "</li>"; }).join("") + "</ol>"
+          : '<div class="cat">No farm plan recorded for this protocol.</div>') +
+      "</div>" +
+      '<div class="box"><h3>Chains</h3>' + (r.chains.length ? r.chains.map(function (c) { return '<span class="tag">' + esc(c) + "</span>"; }).join("") : '<span class="cat">—</span>') + "</div>" +
+      '<div class="note">Detail rendered from board.json. Everything is offline; no network calls.</div>';
+    render();
   }
-  boot();
-})();
-</script>
-</body>
-</html>
+
+  function wire() {
+    document.getElementById("q").addEventListener("input", function (e) { state.q = e.target.value; render(); });
+    document.getElementById("cat").addEventListener("change", function (e) { state.cat = e.target.value; render(); });
+    document.getElementById("chain").addEventListener("change", function (e) { state.chain = e.target.value; render(); });
+    document.getElementById("conf").addEventListener("change", function (e) { state.conf
