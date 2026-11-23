@@ -1,33 +1,6 @@
-// vendor/makefun-board.ts
-// Kit-provided board/dossier helper. Used by main.ts. Do not edit.
-//
-// Exposes:
-//   - Types for board rows, farm plans and dossiers
-//   - buildDossier(rows, meta): assemble a dossier from ranked rows
-//   - validateBoard(rows): sanity checks used by main.ts before writing board.json
-//   - stableSort / compareRows: deterministic ranking helpers
-//   - formatUsd / formatPct: display helpers shared with the dashboard
-//
-// No network. No external deps. Pure functions only.
-
-export type Confidence = "high" | "medium" | "low";
-
-export interface FarmStep {
-  step: number;
-  action: string;
-  detail: string;
-  cost_usd?: number;
-  risk?: Confidence;
-}
-
-export interface FarmPlan {
-  summary: string;
-  steps: FarmStep[];
-  capital_usd: number;
-  expected_value_usd: number;
-  time_hours: number;
-  risks: string[];
-}
+import { createHash } from "node:crypto";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 
 export interface BoardRow {
   rank: number;
@@ -35,146 +8,187 @@ export interface BoardRow {
   name: string;
   category: string;
   chains: string[];
-  tvl_usd: number;
-  implied_value_usd: number;
-  implied_value_low_usd: number;
-  implied_value_high_usd: number;
-  confidence: Confidence;
-  has_token: false;
-  is_wrapped_or_staked: false;
-  rationale: string;
-  farm: FarmPlan;
-  signals: Record<string, number | string | boolean>;
+  tvlUsd: number;
+  impliedValueUsd: number;
+  launchScore: number;
+  farmSteps: string[];
+  notes: string;
+  [key: string]: unknown;
 }
 
-export interface DossierMeta {
-  generated_at: string;
-  source: string;
-  snapshot_rows: number;
-  watchlist_rows: number;
-  excluded_rows: number;
-  method: string;
+export interface Board {
   version: string;
-}
-
-export interface Dossier {
-  format: "makefun-board/1";
-  meta: DossierMeta;
+  generatedAt: string;
+  source: string;
   rows: BoardRow[];
-  summary: {
-    total_implied_value_usd: number;
-    median_implied_value_usd: number;
-    top_slug: string | null;
-    by_category: Record<string, number>;
-    by_confidence: Record<Confidence, number>;
+  stats: {
+    total: number;
+    covered: number;
+    noToken: number;
+    excluded: number;
+    totalImpliedValueUsd: number;
   };
 }
 
-const CONFIDENCE_ORDER: Record<Confidence, number> = {
-  high: 0,
-  medium: 1,
-  low: 2,
-};
+export interface Dossier {
+  version: string;
+  generatedAt: string;
+  boardHash: string;
+  rowCount: number;
+  topRows: Array<{
+    rank: number;
+    slug: string;
+    name: string;
+    impliedValueUsd: number;
+    launchScore: number;
+  }>;
+  methodology: string;
+  files: Record<string, string>;
+}
 
-export function compareRows(a: BoardRow, b: BoardRow): number {
-  if (b.implied_value_usd !== a.implied_value_usd) {
-    return b.implied_value_usd - a.implied_value_usd;
+const BOARD_VERSION = "makefun-board/1";
+const DOSSIER_VERSION = "makefun-dossier/1";
+
+function sha256(text: string): string {
+  return createHash("sha256").update(text, "utf8").digest("hex");
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
   }
-  const ca = CONFIDENCE_ORDER[a.confidence] ?? 3;
-  const cb = CONFIDENCE_ORDER[b.confidence] ?? 3;
-  if (ca !== cb) return ca - cb;
-  if (b.tvl_usd !== a.tvl_usd) return b.tvl_usd - a.tvl_usd;
-  return a.slug.localeCompare(b.slug);
+  if (Array.isArray(value)) {
+    return "[" + value.map((v) => stableStringify(v)).join(",") + "]";
+  }
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  return "{" + keys.map((k) => JSON.stringify(k) + ":" + stableStringify(obj[k])).join(",") + "}";
 }
 
-export function stableSort(rows: BoardRow[]): BoardRow[] {
-  return [...rows].sort(compareRows);
+export function hashBoard(board: Board): string {
+  return sha256(stableStringify(board));
 }
 
-export function validateBoard(rows: BoardRow[]): string[] {
-  const problems: string[] = [];
-  if (rows.length < 100) {
-    problems.push(`board has ${rows.length} rows, need at least 100`);
+export function validateBoard(board: Board): string[] {
+  const errors: string[] = [];
+  if (!board || typeof board !== "object") {
+    errors.push("board is not an object");
+    return errors;
+  }
+  if (board.version !== BOARD_VERSION) {
+    errors.push(`board.version must be ${BOARD_VERSION}`);
+  }
+  if (!Array.isArray(board.rows)) {
+    errors.push("board.rows must be an array");
+    return errors;
+  }
+  if (board.rows.length < 100) {
+    errors.push(`board.rows must have at least 100 rows (has ${board.rows.length})`);
   }
   const seen = new Set<string>();
-  for (let i = 0; i < rows.length; i++) {
-    const r = rows[i];
-    if (!r.slug) problems.push(`row ${i}: missing slug`);
-    if (seen.has(r.slug)) problems.push(`row ${i}: duplicate slug ${r.slug}`);
-    seen.add(r.slug);
-    if (r.has_token) problems.push(`row ${i} (${r.slug}): has_token must be false`);
-    if (r.is_wrapped_or_staked) {
-      problems.push(`row ${i} (${r.slug}): wrapped/staked must be excluded`);
+  board.rows.forEach((row, i) => {
+    if (!row || typeof row !== "object") {
+      errors.push(`row ${i} is not an object`);
+      return;
     }
-    if (!Number.isFinite(r.implied_value_usd) || r.implied_value_usd < 0) {
-      problems.push(`row ${i} (${r.slug}): bad implied value`);
+    if (typeof row.slug !== "string" || row.slug.length === 0) {
+      errors.push(`row ${i} has no slug`);
+    } else if (seen.has(row.slug)) {
+      errors.push(`row ${i} repeats slug ${row.slug}`);
+    } else {
+      seen.add(row.slug);
     }
-    if (r.implied_value_low_usd > r.implied_value_usd ||
-        r.implied_value_usd > r.implied_value_high_usd) {
-      problems.push(`row ${i} (${r.slug}): implied value outside low/high band`);
+    if (typeof row.name !== "string" || row.name.length === 0) {
+      errors.push(`row ${i} has no name`);
     }
-    if (!r.farm || !Array.isArray(r.farm.steps) || r.farm.steps.length === 0) {
-      problems.push(`row ${i} (${r.slug}): missing farm plan`);
+    if (typeof row.impliedValueUsd !== "number" || !Number.isFinite(row.impliedValueUsd)) {
+      errors.push(`row ${i} has no finite impliedValueUsd`);
     }
-    if (!r.rationale || r.rationale.length < 10) {
-      problems.push(`row ${i} (${r.slug}): rationale too short`);
+    if (!Array.isArray(row.farmSteps) || row.farmSteps.length === 0) {
+      errors.push(`row ${i} has no farmSteps`);
     }
-    if (r.rank !== i + 1) {
-      problems.push(`row ${i} (${r.slug}): rank ${r.rank} != ${i + 1}`);
+    if (typeof row.rank !== "number") {
+      errors.push(`row ${i} has no numeric rank`);
     }
-  }
-  return problems;
+  });
+  return errors;
 }
 
-function median(values: number[]): number {
-  if (values.length === 0) return 0;
-  const s = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(s.length / 2);
-  return s.length % 2 === 0 ? (s[mid - 1] + s[mid]) / 2 : s[mid];
-}
-
-export function buildDossier(rows: BoardRow[], meta: DossierMeta): Dossier {
-  const sorted = stableSort(rows).map((r, i) => ({ ...r, rank: i + 1 }));
-  const values = sorted.map((r) => r.implied_value_usd);
-  const byCategory: Record<string, number> = {};
-  const byConfidence: Record<Confidence, number> = { high: 0, medium: 0, low: 0 };
-  for (const r of sorted) {
-    byCategory[r.category] = (byCategory[r.category] ?? 0) + 1;
-    byConfidence[r.confidence] = (byConfidence[r.confidence] ?? 0) + 1;
+export function buildDossier(board: Board, methodology?: string): Dossier {
+  const errors = validateBoard(board);
+  if (errors.length > 0) {
+    throw new Error("invalid board: " + errors.join("; "));
   }
+  const sorted = [...board.rows].sort((a, b) => a.rank - b.rank);
+  const topRows = sorted.slice(0, 25).map((row) => ({
+    rank: row.rank,
+    slug: row.slug,
+    name: row.name,
+    impliedValueUsd: row.impliedValueUsd,
+    launchScore: row.launchScore,
+  }));
   return {
-    format: "makefun-board/1",
-    meta,
-    rows: sorted,
-    summary: {
-      total_implied_value_usd: values.reduce((a, b) => a + b, 0),
-      median_implied_value_usd: median(values),
-      top_slug: sorted.length > 0 ? sorted[0].slug : null,
-      by_category: byCategory,
-      by_confidence: byConfidence,
+    version: DOSSIER_VERSION,
+    generatedAt: board.generatedAt,
+    boardHash: hashBoard(board),
+    rowCount: board.rows.length,
+    topRows,
+    methodology:
+      methodology ??
+      "Protocols tracked by DefiLlama with no token of their own, excluding wrapped and staked products of tokens that already trade, ranked by implied launch value (TVL times category multiple) and launch readiness.",
+    files: {
+      "board.json": "The full watchlist board with implied values and farm plans.",
+      "dashboard/index.html": "Static dashboard rendering the board, detail views and filters.",
     },
   };
 }
 
-export function formatUsd(n: number): string {
-  if (!Number.isFinite(n)) return "—";
-  const abs = Math.abs(n);
-  if (abs >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
-  if (abs >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
-  if (abs >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
-  return `$${n.toFixed(0)}`;
+export function writeJson(path: string, value: unknown): void {
+  const abs = resolve(path);
+  mkdirSync(dirname(abs), { recursive: true });
+  writeFileSync(abs, JSON.stringify(value, null, 2) + "\n", "utf8");
 }
 
-export function formatPct(n: number, digits = 1): string {
-  if (!Number.isFinite(n)) return "—";
-  return `${(n * 100).toFixed(digits)}%`;
+export function writeBoard(path: string, board: Board): void {
+  const errors = validateBoard(board);
+  if (errors.length > 0) {
+    throw new Error("invalid board: " + errors.join("; "));
+  }
+  writeJson(path, board);
 }
 
-export default {
-  buildDossier,
-  validateBoard,
-  stableSort,
-  compareRows,
-  formatUsd,
-  formatPct,
-};
+export function writeDossier(path: string, dossier: Dossier): void {
+  writeJson(path, dossier);
+}
+
+export function loadBoard(path: string): Board {
+  const abs = resolve(path);
+  if (!existsSync(abs)) {
+    throw new Error(`board not found at ${abs}`);
+  }
+  const parsed = JSON.parse(readFileSync(abs, "utf8")) as Board;
+  const errors = validateBoard(parsed);
+  if (errors.length > 0) {
+    throw new Error("invalid board: " + errors.join("; "));
+  }
+  return parsed;
+}
+
+export function emitBoardAndDossier(
+  outputDir: string,
+  board: Board,
+  methodology?: string,
+): { boardPath: string; dossierPath: string; dossier: Dossier } {
+  const boardPath = resolve(outputDir, "board.json");
+  const dossierPath = resolve(outputDir, "dossier.json");
+  writeBoard(boardPath, board);
+  const dossier = buildDossier(board, methodology);
+  writeDossier(dossierPath, dossier);
+  return { boardPath, dossierPath, dossier };
+}
+
+export const BOARD_FORMAT_VERSION = BOARD_VERSION;
+export const DOSSIER_FORMAT_VERSION = DOSSIER_VERSION;
+</｜DSML｜ parameter>
+</｜DSML｜ invoke>
+</｜DSML｜ calls>
