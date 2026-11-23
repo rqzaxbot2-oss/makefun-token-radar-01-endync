@@ -1,337 +1,416 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync } from "node:fs";
-import { join, dirname, resolve, relative } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join, resolve, sep } from "node:path";
 
-const ROOT = dirname(fileURLToPath(import.meta.url));
-const OUT = process.env.MAKEFUN_OUTPUT_DIR ? resolve(process.env.MAKEFUN_OUTPUT_DIR) : ROOT;
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+interface RawProtocol {
+  name?: string;
+  slug?: string;
+  symbol?: string;
+  category?: string;
+  chains?: string[];
+  tvl?: number | null;
+  chainTvls?: Record<string, number>;
+  change_1d?: number | null;
+  change_7d?: number | null;
+  change_1m?: number | null;
+  mcap?: number | null;
+  listedAt?: number | null;
+  url?: string;
+  twitter?: string;
+  description?: string;
+  audits?: string | number | null;
+  audit_links?: string[];
+  oracles?: string[];
+  forkedFrom?: string[];
+  parentProtocol?: string;
+  referralUrl?: string;
+  logo?: string;
+  gecko_id?: string | null;
+  token?: string | null;
+  [k: string]: unknown;
+}
 
-type Proto = {
-  name: string;
-  slug: string;
-  category?: string | null;
-  chains: string[];
-  tvl: number | null;
-  mcap: number | null;
-  twitter: string | null;
-  url: string | null;
-  description: string | null;
-  listedAt: number | null;
-  audits: string | number | null;
-  forks: number | null;
-  parentProtocol: string | null;
-  symbol: string | null;
-  token: string | null;
-  raw: any;
-};
+interface FarmStep {
+  step: number;
+  action: string;
+  detail: string;
+  cost: string;
+  payoff: string;
+}
 
-type BoardRow = {
+interface BoardRow {
   rank: number;
-  name: string;
   slug: string;
+  name: string;
   category: string;
   chains: string[];
-  tvl: number | null;
-  mcap: number | null;
-  twitter: string | null;
-  url: string | null;
-  description: string | null;
+  tvl: number;
+  tvl7d: number | null;
+  tvl1m: number | null;
+  momentum: number;
   impliedValue: number;
-  scoreParts: Record<string, number>;
-  farmPlan: string[];
-  tokenless: true;
-  wrappedReason: null;
+  impliedLow: number;
+  impliedHigh: number;
+  confidence: number;
+  score: number;
+  tier: "S" | "A" | "B" | "C";
+  reason: string;
+  farmPlan: FarmStep[];
+  url: string;
+  twitter: string | null;
+  description: string;
+  audits: number;
+  oracles: string[];
+  forkedFrom: string[];
+  parent: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Category multiples: implied FDV = TVL * multiple (median tokenized peer)
+// ---------------------------------------------------------------------------
+const CATEGORY_MULTIPLE: Record<string, { mult: number; spread: number; note: string }> = {
+  "Liquid Staking": { mult: 0.28, spread: 0.35, note: "LST tokens trade well under TVL; staked product risk" },
+  "Liquid Restaking": { mult: 0.22, spread: 0.4, note: "restaking points already priced by peers" },
+  "Bridge": { mult: 0.9, spread: 0.5, note: "bridges trade near TVL on volume" },
+  "Dexes": { mult: 0.75, spread: 0.45, note: "DEX tokens trade at a discount to TVL" },
+  "DEX": { mult: 0.75, spread: 0.45, note: "DEX tokens trade at a discount to TVL" },
+  "Lending": { mult: 0.55, spread: 0.4, note: "lending protocols price on borrow demand" },
+  "CDP": { mult: 0.5, spread: 0.45, note: "stablecoin issuers price on supply" },
+  "Yield": { mult: 0.35, spread: 0.5, note: "yield aggregators price on AUM share" },
+  "Yield Aggregator": { mult: 0.35, spread: 0.5, note: "yield aggregators price on AUM share" },
+  "Perp DEX": { mult: 1.1, spread: 0.5, note: "perps command premium on volume" },
+  "Derivatives": { mult: 0.9, spread: 0.5, note: "derivatives price on open interest" },
+  "Options": { mult: 0.7, spread: 0.5, note: "options venues price on notional" },
+  "Lending & CDP": { mult: 0.55, spread: 0.4, note: "lending and CDP price on borrow demand" },
+  "Stablecoin Issuer": { mult: 0.6, spread: 0.45, note: "issuers price on supply" },
+  "RWA": { mult: 0.5, spread: 0.55, note: "RWA prices on TVL with regulatory discount" },
+  "Liquidity Manager": { mult: 0.3, spread: 0.5, note: "managers price on managed liquidity" },
+  "Launchpad": { mult: 1.3, spread: 0.6, note: "launchpads price on fee flow" },
+  "Prediction Market": { mult: 1.0, spread: 0.6, note: "prediction markets price on volume" },
+  "Gaming": { mult: 0.4, spread: 0.6, note: "gaming prices on active users" },
+  "NFT Marketplace": { mult: 0.35, spread: 0.6, note: "NFT venues price on take rate" },
+  "Indexes": { mult: 0.3, spread: 0.5, note: "index products price on AUM" },
+  "Insurance": { mult: 0.3, spread: 0.6, note: "insurance prices on covered capital" },
+  "Farm": { mult: 0.25, spread: 0.5, note: "farms price on emissions" },
+  "Algo-Stables": { mult: 0.3, spread: 0.6, note: "algo-stables price on supply" },
+  "CEX": { mult: 0.4, spread: 0.5, note: "CEX prices on volume" },
+  "Chain": { mult: 0.6, spread: 0.5, note: "chains price on TVL and activity" },
+  "Canonical Bridge": { mult: 0.8, spread: 0.5, note: "canonical bridges price on TVL" },
+  "Cross Chain Bridge": { mult: 0.8, spread: 0.5, note: "bridges price on TVL" },
+  "Restaking": { mult: 0.25, spread: 0.4, note: "restaking prices on secured value" },
+  "Staking Pool": { mult: 0.25, spread: 0.4, note: "staking pools price on stake" },
+  "Staking": { mult: 0.25, spread: 0.4, note: "staking prices on stake" },
+  "Basis Trading": { mult: 0.4, spread: 0.5, note: "basis trading prices on capital" },
+  "Synthetics": { mult: 0.6, spread: 0.5, note: "synthetics price on open interest" },
+  "Onchain Capital Allocator": { mult: 0.35, spread: 0.5, note: "allocators price on AUM" },
+  "Vault": { mult: 0.35, spread: 0.5, note: "vaults price on AUM" },
+  "SoFi": { mult: 0.5, spread: 0.5, note: "SoFi prices on TVL" },
+  "Telegram Bot": { mult: 0.6, spread: 0.6, note: "bots price on volume" },
+  "Trading App": { mult: 0.6, spread: 0.6, note: "trading apps price on volume" },
+  "Wallet": { mult: 0.5, spread: 0.6, note: "wallets price on users" },
+  "Payments": { mult: 0.5, spread: 0.6, note: "payments price on volume" },
+  "Oracle": { mult: 0.8, spread: 0.5, note: "oracles price on integrations" },
+  "MEV": { mult: 0.7, spread: 0.5, note: "MEV prices on extracted value" },
+  "Reserve Currency": { mult: 0.5, spread: 0.5, note: "reserve currencies price on supply" },
+  "Uncollateralized Lending": { mult: 0.5, spread: 0.5, note: "lending prices on borrow demand" },
+  "Leveraged Farming": { mult: 0.3, spread: 0.5, note: "leveraged farming prices on TVL" },
+  "Fixed Rate Lending": { mult: 0.5, spread: 0.5, note: "fixed lending prices on TVL" },
+  "Liquidity": { mult: 0.4, spread: 0.5, note: "liquidity prices on TVL" },
+  "OTC Marketplace": { mult: 0.4, spread: 0.5, note: "OTC prices on volume" },
+  "DCA": { mult: 0.4, spread: 0.5, note: "DCA prices on volume" },
+  "Charity": { mult: 0.2, spread: 0.6, note: "charity prices on donations" },
+  "Other": { mult: 0.4, spread: 0.5, note: "generic multiple" },
 };
 
-const WRAPPED_HINTS = [
-  "wrapped", "staked", "stake", "liquid staking", "lsd", "lst", "restaked", "restaking",
-  "vault", "receipt", "bridged", "canonical", "gauge", "lp token", "pt-", "yt-", "aave-v", "c-",
+const FALLBACK = { mult: 0.45, spread: 0.5, note: "generic multiple" };
+
+// Wrapped / staked / liquid product name markers
+const WRAPPED_MARKERS = [
+  "wrapped", "staked", "liquid", "restaked", "restaking", "lst", "lsd",
+  "receipt", "vault share", "share", "wst", "rst", "vst", "st-", "st ",
+  "bridged", "canonical", "pegged", "weth", "wbtc", "wsol", "wsteth",
+  "steth", "reth", "cbeth", "sfrxeth", "frxeth", "meth", "ezeth", "weeth",
+  "rseth", "susde", "usde", "susds", "sgho", "gho", "wusdm", "usdm",
 ];
 
-const DERIVATIVE_CATEGORY = /liquid staking|restaking|yield aggregator|cex|bridge/i;
-const DERIVATIVE_NAME = /staked|wrapped|receipt/i;
-const STRONG_CATEGORY = /dex|perp|derivativ|lending|cdp|yield|bridge|lsd|restaking|rwa|stablecoin|options|insurance|launchpad/i;
+const STAKED_CATEGORIES = new Set([
+  "Liquid Staking", "Liquid Restaking", "Restaking", "Staking", "Staking Pool",
+  "Yield Aggregator", "Vault", "Indexes", "Leveraged Farming",
+]);
 
-function slugify(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-}
-
-function num(v: any): number | null {
-  if (v === null || v === undefined) return null;
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+function num(v: unknown): number | null {
   if (typeof v === "number") return Number.isFinite(v) ? v : null;
-  const n = Number(String(v).replace(/[,$\s]/g, ""));
-  return Number.isFinite(n) ? n : null;
-}
-
-function str(v: any): string | null {
-  if (v === null || v === undefined) return null;
-  const s = String(v).trim();
-  if (!s || s.toLowerCase() === "null" || s.toLowerCase() === "undefined") return null;
-  return s;
-}
-
-function walkFiles(dir: string, acc: string[] = [], depth = 0): string[] {
-  if (depth > 6 || !existsSync(dir)) return acc;
-  let entries: string[];
-  try { entries = readdirSync(dir); } catch { return acc; }
-  for (const e of entries) {
-    if (e === "node_modules" || e === ".git") continue;
-    const p = join(dir, e);
-    let st;
-    try { st = statSync(p); } catch { continue; }
-    if (st.isDirectory()) walkFiles(p, acc, depth + 1);
-    else acc.push(p);
-  }
-  return acc;
-}
-
-function parseSnapshotFile(f: string): any | null {
-  let txt: string;
-  try { txt = readFileSync(f, "utf8"); } catch { return null; }
-  try {
-    if (f.toLowerCase().endsWith(".jsonl")) {
-      const rows = txt.split(/\r?\n/).filter((l) => l.trim()).map((l) => JSON.parse(l));
-      return rows;
-    }
-    return JSON.parse(txt);
-  } catch {
-    return null;
-  }
-}
-
-function findSnapshot(): { file: string; data: any } | null {
-  const candidates: string[] = [];
-  const env = process.env.MAKEFUN_SNAPSHOT || process.env.SNAPSHOT_PATH;
-  if (env) candidates.push(resolve(env));
-  const bases = [ROOT, OUT, join(ROOT, "snapshot"), join(ROOT, "data"), join(ROOT, "vendor")];
-  const seen = new Set<string>();
-  for (const base of bases) {
-    if (!existsSync(base)) continue;
-    for (const f of walkFiles(base)) {
-      if (seen.has(f)) continue;
-      seen.add(f);
-      const low = f.toLowerCase();
-      if (!/\.(json|jsonl)$/.test(low)) continue;
-      if (/snapshot|protocols|defillama|sealed|radar/.test(low)) candidates.push(f);
-    }
-  }
-  for (const f of candidates) {
-    const data = parseSnapshotFile(f);
-    if (data === null) continue;
-    if (extractList(data).length >= 20) return { file: f, data };
+  if (typeof v === "string") {
+    const cleaned = v.replace(/[$,]/g, "").trim();
+    if (!cleaned) return null;
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : null;
   }
   return null;
 }
 
-function extractList(data: any, depth = 0): any[] {
-  if (depth > 4 || data === null || data === undefined) return [];
-  if (Array.isArray(data)) return data;
-  if (typeof data !== "object") return [];
-  for (const k of ["protocols", "data", "rows", "items", "results", "list"]) {
-    const v = (data as any)[k];
-    if (Array.isArray(v)) return v;
-    if (v && typeof v === "object") {
-      const inner = extractList(v, depth + 1);
-      if (inner.length) return inner;
-    }
-  }
-  const vals = Object.values(data);
-  if (vals.length && vals.every((v) => v && typeof v === "object" && !Array.isArray(v))) {
-    return vals as any[];
-  }
-  return [];
+function str(v: unknown): string {
+  if (typeof v === "string") return v.trim();
+  if (typeof v === "number" && Number.isFinite(v)) return String(v);
+  return "";
 }
 
-function normalize(p: any): Proto {
-  const name = str(p.name ?? p.protocol ?? p.slug ?? p.id) ?? "unknown";
-  const slug = str(p.slug ?? p.id) ?? slugify(name);
-  const chainsRaw = Array.isArray(p.chains) ? p.chains : p.chain ? [p.chain] : [];
-  const chains = Array.from(new Set(chainsRaw.map((c: any) => str(c)).filter((c: string | null): c is string => !!c)));
-  return {
-    name,
-    slug,
-    category: str(p.category ?? p.sector),
-    chains,
-    tvl: num(p.tvl ?? p.TVL ?? p.tvlUsd ?? p.totalLiquidityUSD),
-    mcap: num(p.mcap ?? p.marketCap ?? p.market_cap ?? p.fdv),
-    twitter: str(p.twitter ?? p.twitterHandle),
-    url: str(p.url ?? p.website),
-    description: str(p.description),
-    listedAt: num(p.listedAt ?? p.listed_at ?? p.createdAt),
-    audits: p.audits ?? p.audit_links ?? null,
-    forks: num(p.forks ?? p.forkCount),
-    parentProtocol: str(p.parentProtocol ?? p.parent),
-    symbol: str(p.symbol ?? p.tokenSymbol),
-    token: str(p.token ?? p.tokenAddress ?? p.address),
-    raw: p,
-  };
+function slugify(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
-function hasToken(p: Proto): boolean {
-  if (p.token) return true;
-  if (p.symbol) return true;
-  const r = p.raw || {};
-  for (const k of ["token", "tokenAddress", "address", "gecko_id", "geckoId", "cmcId", "symbol", "tokens"]) {
-    const v = r[k];
-    if (v === null || v === undefined) continue;
-    if (Array.isArray(v)) { if (v.length) return true; continue; }
-    if (typeof v === "string") { if (str(v)) return true; continue; }
-    if (typeof v === "number") { if (Number.isFinite(v) && v > 0) return true; }
+function looksWrapped(name: string, symbol: string | undefined, category: string): boolean {
+  if (STAKED_CATEGORIES.has(category)) return true;
+  const n = (name + " " + (symbol ?? "")).toLowerCase();
+  for (const m of WRAPPED_MARKERS) {
+    if (n.includes(m)) return true;
   }
   return false;
 }
 
-function isWrappedOrStaked(p: Proto, all: Proto[]): { wrapped: boolean; reason: string } {
-  const n = p.name.toLowerCase();
-  const cat = String(p.category ?? "").toLowerCase();
-  for (const h of WRAPPED_HINTS) {
-    if (n.includes(h)) return { wrapped: true, reason: `name matches "${h}"` };
-  }
-  if (DERIVATIVE_CATEGORY.test(cat) && DERIVATIVE_NAME.test(n)) {
-    return { wrapped: true, reason: `category ${cat} derivative` };
-  }
-  if (p.parentProtocol) {
-    const target = p.parentProtocol.toLowerCase();
-    const parent = all.find((x) => x.slug === p.parentProtocol || x.name.toLowerCase() === target);
-    if (parent && hasToken(parent)) return { wrapped: true, reason: `derivative of ${parent.name}` };
-  }
-  return { wrapped: false, reason: "" };
+function hasToken(p: RawProtocol): boolean {
+  if (str(p.token).length > 0) return true;
+  if (str(p.gecko_id).length > 0) return true;
+  if (str(p.symbol).length > 0) return true;
+  const mcap = num(p.mcap);
+  if (mcap !== null && mcap > 0) return true;
+  return false;
 }
 
-function scoreProto(p: Proto): { value: number; parts: Record<string, number> } {
-  const tvl = p.tvl ?? 0;
-  const mcap = p.mcap ?? 0;
-  const tvlScore = tvl > 0 ? Math.log10(1 + tvl) * 22 : 0;
-  const mcapScore = mcap > 0 ? Math.log10(1 + mcap) * 14 : 0;
-  const chainScore = Math.min(p.chains.length * 4, 24);
-  const catBonus = STRONG_CATEGORY.test(String(p.category ?? "")) ? 18 : 6;
-  const age = p.listedAt ? Math.max(0, (Date.now() / 1000 - p.listedAt) / 86400) : 365;
-  const ageScore = Math.min(Math.log10(1 + age) * 6, 30);
-  const auditScore = p.audits ? Math.min(Array.isArray(p.audits) ? p.audits.length * 4 : 8, 20) : 0;
-  const forkPenalty = Math.min((p.forks ?? 0) * 1.5, 20);
-  const social = p.twitter ? 6 : 0;
-  const parts = { tvlScore, mcapScore, chainScore, catBonus, ageScore, auditScore, social, forkPenalty };
-  const value = Math.max(0, tvlScore + mcapScore + chainScore + catBonus + ageScore + auditScore + social - forkPenalty);
-  return { value: Math.round(value * 100) / 100, parts };
+function momentumScore(p: RawProtocol): number {
+  const d1 = num(p.change_1d) ?? 0;
+  const d7 = num(p.change_7d) ?? 0;
+  const d30 = num(p.change_1m) ?? 0;
+  const raw = d1 * 0.5 + d7 * 0.3 + d30 * 0.2;
+  return Math.max(-50, Math.min(50, raw));
 }
 
-function farmPlan(p: Proto, value: number): string[] {
-  const steps: string[] = [];
-  const tvl = p.tvl ?? 0;
-  const chains = p.chains;
-  steps.push(`Track ${p.name} on ${chains.length ? chains.join(", ") : "its primary chain"} via DefiLlama and the team's socials for token announcements.`);
-  if (tvl > 0) {
-    steps.push(`Provide liquidity or use the protocol with a small position (TVL ~$${Math.round(tvl).toLocaleString("en-US")}) to qualify for a potential airdrop snapshot.`);
+function confidenceFor(p: RawProtocol, tvl: number): number {
+  let c = 0.5;
+  if (tvl > 1e9) c += 0.2;
+  else if (tvl > 1e8) c += 0.15;
+  else if (tvl > 1e7) c += 0.1;
+  else if (tvl > 1e6) c += 0.05;
+  const audits = num(p.audits);
+  if (audits !== null && audits > 0) c += 0.08;
+  if ((p.audit_links?.length ?? 0) > 0) c += 0.05;
+  if ((p.chains?.length ?? 0) > 1) c += 0.05;
+  const listedAt = num(p.listedAt);
+  if (listedAt !== null && listedAt > 0) {
+    const age = (Date.now() / 1000 - listedAt) / 86400;
+    if (age > 365) c += 0.07;
+    else if (age > 180) c += 0.04;
+  }
+  if (str(p.twitter).length > 0) c += 0.03;
+  if (str(p.url).length > 0) c += 0.02;
+  return Math.max(0.1, Math.min(0.98, c));
+}
+
+function tierFor(score: number): "S" | "A" | "B" | "C" {
+  if (score >= 80) return "S";
+  if (score >= 60) return "A";
+  if (score >= 40) return "B";
+  return "C";
+}
+
+function farmPlanFor(row: Omit<BoardRow, "farmPlan" | "rank">): FarmStep[] {
+  const steps: FarmStep[] = [];
+  const cat = row.category;
+  const chain = row.chains[0] ?? "mainnet";
+  const isLending = /lend|cdp|borrow/i.test(cat);
+  const isDex = /dex|swap|liquidity/i.test(cat);
+  const isPerp = /perp|deriv|option|synthet/i.test(cat);
+  const isBridge = /bridge/i.test(cat);
+  const isYield = /yield|vault|index|farm/i.test(cat);
+
+  steps.push({
+    step: 1,
+    action: "Confirm no token exists",
+    detail: `Check ${row.url || "the protocol site"} and docs for a token, points program or airdrop page. Snapshot shows no token and no wrapped/staked derivative.`,
+    cost: "0",
+    payoff: "avoid farming a protocol whose token already trades",
+  });
+
+  if (isLending) {
+    steps.push({
+      step: 2,
+      action: "Supply collateral",
+      detail: `Supply a blue-chip asset (ETH/USDC) to ${row.name} on its deepest chain (${chain}). Keep LTV under 50%.`,
+      cost: "gas + opportunity cost",
+      payoff: "borrow demand drives points; supply is the base unit",
+    });
+    steps.push({
+      step: 3,
+      action: "Borrow and re-supply",
+      detail: "Borrow a stable against the collateral and re-supply it (2-3 loops max) to multiply borrow volume without liquidation risk.",
+      cost: "gas per loop",
+      payoff: "borrow volume is usually the weighted metric",
+    });
+  } else if (isDex) {
+    steps.push({
+      step: 2,
+      action: "Provide liquidity",
+      detail: `Add a concentrated range in the deepest pool on ${chain}. Use a stable/stable or ETH/stable pair to limit IL.`,
+      cost: "gas + IL risk",
+      payoff: "LP fees plus volume-weighted points",
+    });
+    steps.push({
+      step: 3,
+      action: "Route volume",
+      detail: "Do small swaps through the router weekly to add volume without paying much fee.",
+      cost: "swap fees",
+      payoff: "volume often counts double LP fees",
+    });
+  } else if (isPerp) {
+    steps.push({
+      step: 2,
+      action: "Open hedged positions",
+      detail: `Open a small long and short on ${row.name} to generate volume, keeping leverage under 3x.`,
+      cost: "funding + fees",
+      payoff: "volume is the primary metric",
+    });
+    steps.push({
+      step: 3,
+      action: "Provide insurance/backstop",
+      detail: "If the protocol has a backstop or insurance pool, deposit a small amount to earn the insurance yield.",
+      cost: "capital at risk",
+      payoff: "backstop deposits often earn bonus points",
+    });
+  } else if (isBridge) {
+    steps.push({
+      step: 2,
+      action: "Bridge both ways",
+      detail: `Bridge a small amount from ${chain} to another chain and back to generate transfer volume.`,
+      cost: "bridge fee + gas",
+      payoff: "transfer volume is the metric",
+    });
+    steps.push({
+      step: 3,
+      action: "Provide bridge liquidity",
+      detail: "Deposit into the bridge's liquidity pool if one exists to earn LP fees and points.",
+      cost: "capital lockup",
+      payoff: "LP deposits often count",
+    });
+  } else if (isYield) {
+    steps.push({
+      step: 2,
+      action: "Deposit into the vault",
+      detail: `Deposit a stable or ETH into ${row.name}'s flagship vault on ${chain}.`,
+      cost: "gas",
+      payoff: "AUM share is the metric",
+    });
+    steps.push({
+      step: 3,
+      action: "Compound weekly",
+      detail: "Harvest and redeposit weekly to keep the position growing and to add transaction count.",
+      cost: "gas per harvest",
+      payoff: "compounding increases AUM share",
+    });
   } else {
-    steps.push(`Engage early before TVL grows: test the product on testnet/mainnet with a small amount.`);
+    steps.push({
+      step: 2,
+      action: "Use the core product",
+      detail: `Use ${row.name}'s main product on ${chain} with a small position to generate activity.`,
+      cost: "gas",
+      payoff: "activity is the base metric",
+    });
+    steps.push({
+      step: 3,
+      action: "Hold and revisit",
+      detail: "Hold the position and check the protocol's docs and socials monthly for a points or airdrop announcement.",
+      cost: "capital lockup",
+      payoff: "early users get the largest share",
+    });
   }
-  if (p.twitter) steps.push(`Follow ${p.twitter} and join the community to catch quests, points programs and allowlists.`);
-  if (p.url) steps.push(`Register on ${p.url} and complete any points/quest campaigns.`);
-  steps.push(`Keep activity consistent across ${Math.max(1, Math.min(3, chains.length || 1))} chain(s) and document wallet addresses used.`);
-  steps.push(`Set alerts for token launch keywords; implied value score ${value.toFixed(1)} suggests ${value > 90 ? "high" : value > 50 ? "medium" : "speculative"} upside.`);
+
+  const handle = row.twitter ? "@" + row.twitter.replace(/^@/, "") : "the protocol's socials";
+  steps.push({
+    step: steps.length + 1,
+    action: "Track the launch",
+    detail: `Watch ${handle} and DefiLlama for a token announcement. Exit farming if a token launches without a retroactive allocation.`,
+    cost: "0",
+    payoff: "avoid sunk cost after a tokenless launch",
+  });
+
   return steps;
 }
 
-function buildBoard(snapshot: { file: string; data: any }): any {
-  const rawList = extractList(snapshot.data);
-  const all = rawList.map(normalize);
-  const seen = new Set<string>();
-  const rows: BoardRow[] = [];
-  for (const p of all) {
-    if (seen.has(p.slug)) continue;
-    seen.add(p.slug);
-    if (hasToken(p)) continue;
-    if (isWrappedOrStaked(p, all).wrapped) continue;
-    const { value, parts } = scoreProto(p);
-    rows.push({
-      rank: 0,
-      name: p.name,
-      slug: p.slug,
-      category: p.category ?? "unknown",
-      chains: p.chains,
-      tvl: p.tvl,
-      mcap: p.mcap,
-      twitter: p.twitter,
-      url: p.url,
-      description: p.description,
-      impliedValue: value,
-      scoreParts: parts,
-      farmPlan: farmPlan(p, value),
-      tokenless: true,
-      wrappedReason: null,
-    });
+// ---------------------------------------------------------------------------
+// Snapshot loading
+// ---------------------------------------------------------------------------
+function extractProtocols(parsed: unknown, depth = 0): RawProtocol[] {
+  if (depth > 4) return [];
+  if (Array.isArray(parsed)) {
+    return parsed.filter((x): x is RawProtocol => !!x && typeof x === "object" && !Array.isArray(x));
   }
-  rows.sort((a, b) => b.impliedValue - a.impliedValue || (b.tvl ?? 0) - (a.tvl ?? 0));
-  rows.forEach((r, i) => (r.rank = i + 1));
-  return {
-    generatedAt: new Date().toISOString(),
-    snapshotFile: relative(ROOT, snapshot.file) || snapshot.file,
-    totalProtocols: all.length,
-    tokenlessCount: rows.length,
-    rows,
-  };
+  if (parsed && typeof parsed === "object") {
+    const obj = parsed as Record<string, unknown>;
+    for (const key of ["protocols", "data", "rows", "items", "snapshot"]) {
+      const v = obj[key];
+      if (Array.isArray(v)) {
+        const out = extractProtocols(v, depth + 1);
+        if (out.length) return out;
+      } else if (v && typeof v === "object") {
+        const inner = extractProtocols(v, depth + 1);
+        if (inner.length) return inner;
+      }
+    }
+  }
+  return [];
 }
 
-function esc(s: any): string {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
+function tryLoad(file: string): RawProtocol[] {
+  try {
+    if (!statSync(file).isFile()) return [];
+    const parsed = JSON.parse(readFileSync(file, "utf8"));
+    return extractProtocols(parsed);
+  } catch {
+    return [];
+  }
 }
 
-function renderDashboard(board: any): string {
-  const rows: BoardRow[] = board.rows;
-  const categories = Array.from(new Set(rows.map((r) => r.category))).sort();
-  const chains = Array.from(new Set(rows.flatMap((r) => r.chains))).sort();
-  const dataJs = JSON.stringify(rows).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/&/g, "\\u0026");
-  return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Token Launch Radar</title>
-<style>
-:root{--bg:#0b0f14;--panel:#121821;--line:#1f2937;--txt:#e5e7eb;--mut:#9ca3af;--acc:#22d3ee;--good:#34d399;--warn:#fbbf24}
-*{box-sizing:border-box}body{margin:0;font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--txt)}
-header{padding:18px 24px;border-bottom:1px solid var(--line);display:flex;gap:16px;align-items:baseline;flex-wrap:wrap}
-h1{font-size:20px;margin:0}h1 span{color:var(--acc)}
-.stat{color:var(--mut);font-size:12px}.stat b{color:var(--txt)}
-main{display:grid;grid-template-columns:minmax(0,1fr) 420px;gap:0;height:calc(100vh - 64px)}
-@media(max-width:900px){main{grid-template-columns:1fr;height:auto}}
-#list{overflow:auto;padding:12px 16px}
-#detail{overflow:auto;border-left:1px solid var(--line);padding:16px;background:var(--panel)}
-.controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
-input,select{background:#0f1520;border:1px solid var(--line);color:var(--txt);padding:6px 10px;border-radius:6px;font-size:13px}
-input{flex:1;min-width:160px}
-table{width:100%;border-collapse:collapse;font-size:13px}
-th{position:sticky;top:0;background:var(--bg);text-align:left;color:var(--mut);font-weight:500;padding:8px 6px;border-bottom:1px solid var(--line);cursor:pointer}
-td{padding:8px 6px;border-bottom:1px solid #151c26;vertical-align:top}
-tr.row{cursor:pointer}tr.row:hover{background:#0f1520}tr.sel{background:#0e2230}
-.rank{color:var(--mut);width:36px}.name{font-weight:600}.cat{color:var(--mut);font-size:11px}
-.val{color:var(--acc);font-weight:600;text-align:right;font-variant-numeric:tabular-nums}
-.bar{height:4px;background:#1f2937;border-radius:2px;margin-top:4px;overflow:hidden}.bar i{display:block;height:100%;background:linear-gradient(90deg,#0891b2,#22d3ee)}
-.tag{display:inline-block;font-size:10px;padding:1px 6px;border:1px solid var(--line);border-radius:10px;color:var(--mut);margin-right:4px}
-#detail h2{margin:0 0 4px;font-size:18px}#detail .sub{color:var(--mut);font-size:12px;margin-bottom:12px}
-.kv{display:grid;grid-template-columns:110px 1fr;gap:4px 8px;font-size:13px;margin:12px 0}.kv b{color:var(--mut);font-weight:500}
-ol{padding-left:18px}ol li{margin:6px 0}
-a{color:var(--acc)}.empty{color:var(--mut);padding:24px}
-</style></head><body>
-<header><h1>Token Launch <span>Radar</span></h1>
-<div class="stat"><b>${board.totalProtocols}</b> protocols scanned · <b>${board.tokenlessCount}</b> tokenless candidates</div>
-<div class="stat">generated ${esc(board.generatedAt)}</div></header>
-<main>
-<section id="list">
-<div class="controls">
-<input id="q" placeholder="Search protocol, category, chain…">
-<select id="cat"><option value="">All categories</option>${categories.map((c) => `<option>${esc(c)}</option>`).join("")}</select>
-<select id="chain"><option value="">All chains</option>${chains.map((c) => `<option>${esc(c)}</option>`).join("")}</select>
-<select id="minv"><option value="0">Any value</option><option value="50">Value ≥ 50</option><option value="80">Value ≥ 80</option><option value="100">Value ≥ 100</option></select>
-</div>
-<table><thead><tr><th>#</th><th>Protocol</th><th>Chains</th><th style="text-align:right">TVL</th><th style="text-align:right">Implied value</th></tr></thead>
-<tbody id="tbody"></tbody></table>
-</section>
-<aside id="detail"><div class="empty">Select a protocol to see its detail view and farm plan.</div></aside>
-</main>
-<script>
-const ROWS=${dataJs};
-const els={q:document.getElementById('q'),cat:document.getElementById('cat'),chain:document.getElementById('chain'),minv:document.getElementById('minv'),tbody:document.getElementById('tbody'),detail:document.getElementById('detail')};
-let sel=null;
-function fmt(n){if(n==null)return '—';if(n>=1e9)return '$'+(n/1e9).toFixed(2)+'B';if(n>=1e6)return '$'+(n/1e6).toFixed(2)+'M';if(n>=1e3)return '$'+(n/1e3).toFixed(1)+'K';return '$'+Math.round(n)}
-function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-function filtered(){const q=els.q.value.toLowerCase(),c=els.cat.value,ch=els.chain.value,mv=Number(els.minv.value)||0;
-return ROWS.filter(r=>r.impliedValue>=mv&&(!c||r.category===c)&&(!ch||r.chains.includes(ch))&&(!q||(r.name+' '+r.category+' '+r.chains.join(' ')+' '+(r.description||'')).toLowerCase().includes(q)))}
-function render(){const rows=filtered();const max=Math.max(1,...ROWS.map(r=>r.impliedValue));
-els.tbody.innerHTML=rows.length?rows.map(r=>'<tr class="row'+(sel===r.slug?' sel':'')+'" data-slug="'+esc(r.slug)+'"><td class="rank">'+r.rank+'</td><td><div class="name">'+esc(r.name)+'</div><div class="cat">'+esc(r.category)+'</div></td><td>'+r.chains.slice(0,3).map(x=>'<span class="tag">'+esc(x)+'</span>').join('')+'</td><td style="text-align:right;color:var(--mut)">'+fmt(r.tvl)+'</td><td class="val">'+r.impliedValue.toFixed(1)+'<div
+function findSnapshot(root: string): { protocols: RawProtocol[]; source: string } {
+  const candidates = [
+    join(root, "snapshot.json"),
+    join(root, "data", "snapshot.json"),
+    join(root, "vendor", "snapshot.json"),
+    join(root, "vendor", "makefun-board", "snapshot.json"),
+    join(root, "input", "snapshot.json"),
+    join(root, "protocols.json"),
+    join(root, "data", "protocols.json"),
+  ];
+  for (const c of candidates) {
+    const protocols = tryLoad(c);
+    if (protocols.length) return { protocols, source: c };
+  }
+  const dirs = [root, join(root, "data"), join(root, "vendor"), join(root, "input")];
+  for (const d of dirs) {
+    if (!existsSync(d)) continue;
+    let files: string[];
+    try {
+      files = readdirSync(d);
+    } catch {
+      continue;
+    }
+    for (const f of files) {
+      if (!f.endsWith(".json")) continue;
+      const protocols = tryLoad(join(d, f));
+      if (protocols.length) return { protocols, source: join(d, f) };
+    }
+  }
+  return { protocols: [], source: "" };
+}
+
+// ---------------------------------------------------------------------------
+// Scoring
+// ---------------------------------------------------------------------------
+function buildBoard(protocols: RawProtocol[]): BoardRow[] {
+  const rows
