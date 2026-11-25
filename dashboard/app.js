@@ -1,716 +1,730 @@
-(function () {
+(function (global) {
   "use strict";
 
-  const STORAGE_KEY = "token_radar_farm_checks_v1";
-
-  const q = (sels, root = document) => {
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+  const pick = (sels) => {
     for (const s of sels) {
-      const el = root.querySelector(s);
+      const el = $(s);
       if (el) return el;
     }
     return null;
   };
-  const qa = (sels, root = document) => {
-    for (const s of sels) {
-      const list = root.querySelectorAll(s);
-      if (list.length) return Array.from(list);
-    }
-    return [];
+
+  const state = {
+    raw: null,
+    meta: {},
+    rows: [],
+    filtered: [],
+    selectedSlug: null,
+    filters: {
+      search: "",
+      category: "all",
+      chain: "all",
+      tier: "all",
+      difficulty: "all",
+      minTvl: 0,
+      watchlistOnly: false,
+      pointsOnly: false,
+      quick: "all",
+    },
+    sort: { key: "impliedValue", dir: "desc" },
   };
+
   const esc = (v) =>
-    String(v ?? "")
+    String(v == null ? "" : v)
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
 
-  const num = (...vals) => {
-    for (const v of vals) {
-      if (typeof v === "number" && Number.isFinite(v)) return v;
-      if (typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v))) return Number(v);
-    }
-    return null;
+  const num = (v, fb = 0) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : fb;
   };
 
-  const fmtUsd = (n, empty = "—") => {
-    if (n === null || n === undefined || !Number.isFinite(n)) return empty;
+  function fmtUsd(v) {
+    const n = num(v, NaN);
+    if (!Number.isFinite(n)) return "—";
     const abs = Math.abs(n);
     const sign = n < 0 ? "-" : "";
     if (abs >= 1e12) return `${sign}$${(abs / 1e12).toFixed(2)}T`;
     if (abs >= 1e9) return `${sign}$${(abs / 1e9).toFixed(2)}B`;
-    if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(abs >= 1e8 ? 0 : 1)}M`;
-    if (abs >= 1e3) return `${sign}$${(abs / 1e3).toFixed(abs >= 1e5 ? 0 : 1)}K`;
+    if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(abs >= 1e8 ? 1 : 2)}M`;
+    if (abs >= 1e3) return `${sign}$${(abs / 1e3).toFixed(1)}K`;
     return `${sign}$${abs.toFixed(0)}`;
-  };
-
-  const fmtPct = (n, signed = true) => {
-    if (n === null || n === undefined || !Number.isFinite(n)) return "—";
-    const s = signed && n > 0 ? "+" : "";
-    return `${s}${n.toFixed(1)}%`;
-  };
-
-  const tierSlug = (t) => String(t || "C").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-
-  function loadChecks() {
-    try {
-      return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
-    } catch {
-      return {};
-    }
-  }
-  function saveChecks(map) {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
-    } catch {}
   }
 
-  function normalizeFarm(raw) {
-    const f = raw.farmPlan || raw.farmingPlan || raw.farming || raw.farm || raw.playbook || {};
-    const rawSteps = Array.isArray(f) ? f : Array.isArray(f.steps) ? f.steps : Array.isArray(raw.farmSteps) ? raw.farmSteps : [];
-    const steps = rawSteps.map((s, i) => {
-      if (typeof s === "string") return { title: `Step ${i + 1}`, action: s, detail: "", effort: "" };
-      return {
-        title: s.title || s.step || s.name || `Step ${i + 1}`,
-        action: s.action || s.description || s.instruction || s.text || "",
-        detail: s.detail || s.rationale || s.tip || s.notes || "",
-        effort: s.effort || s.cost || s.priority || "",
-      };
-    });
-    return {
-      summary: (typeof f === "object" && !Array.isArray(f) && (f.summary || f.strategy || f.overview)) || raw.farmSummary || "",
-      difficulty: (typeof f === "object" && !Array.isArray(f) && (f.difficulty || f.effort)) || raw.farmDifficulty || "Medium",
-      capital: (typeof f === "object" && !Array.isArray(f) && (f.capitalRequired || f.minCapital || f.capital)) || "",
-      risk: (typeof f === "object" && !Array.isArray(f) && (f.riskLevel || f.risk)) || "",
-      timeline: (typeof f === "object" && !Array.isArray(f) && (f.timeline || f.cadence || f.frequency)) || "",
-      points: (typeof f === "object" && !Array.isArray(f) && (f.pointsProgram || f.points || f.hasPoints)) || false,
-      tips: Array.isArray(f.tips) ? f.tips : Array.isArray(f.notes) ? f.notes : [],
-      risks: Array.isArray(f.risks) ? f.risks : Array.isArray(f.warnings) ? f.warnings : [],
-      steps,
-    };
+  function fmtPct(v) {
+    const n = num(v, NaN);
+    if (!Number.isFinite(n)) return "—";
+    return `${n > 0 ? "+" : ""}${n.toFixed(1)}%`;
   }
 
   function normalizeRow(r, idx) {
-    const v = r.valuation || r.impliedValuation || {};
-    const m = r.metrics || {};
-    const chains = Array.isArray(r.chains) && r.chains.length
-      ? r.chains.map(String)
-      : r.chain ? [String(r.chain)] : ["Multi-Chain"];
-    const impliedFdv = num(
-      r.impliedValue, r.implied_value, r.impliedFdv, r.implied_fdv, r.estimatedFdv,
-      v.impliedFdv, v.impliedValue, v.mid, v.base, v.fdv, 0
+    const val = typeof r.valuation === "object" && r.valuation ? r.valuation : {};
+    const farm = r.farmPlan || r.farm_plan || r.farming || r.farm || {};
+    const chains = Array.isArray(r.chains)
+      ? r.chains.filter(Boolean)
+      : r.chain
+        ? [String(r.chain)]
+        : [];
+    const impliedValue = num(
+      r.impliedValue ??
+        r.implied_value ??
+        r.impliedFdv ??
+        r.implied_fdv ??
+        val.mid ??
+        val.impliedFdv ??
+        val.fdv ??
+        r.fdv,
+      0
     );
-    const fdvLow = num(r.fdvLow, r.impliedLow, r.valuationLow, v.low, v.bear, impliedFdv ? impliedFdv * 0.65 : null);
-    const fdvHigh = num(r.fdvHigh, r.impliedHigh, r.valuationHigh, v.high, v.bull, impliedFdv ? impliedFdv * 1.5 : null);
-    const tvl = num(r.tvl, r.tvlUsd, m.tvl, 0);
-    const airdropPool = num(
-      r.airdropValue, r.impliedAirdrop, r.estimatedAirdrop, r.airdropPool,
-      v.airdropPool, v.airdropValue, v.estimatedAirdrop, impliedFdv ? impliedFdv * 0.08 : null
+    const impliedLow = num(
+      r.impliedValueLow ?? r.implied_fdv_low ?? r.fdvLow ?? val.low ?? impliedValue * 0.65,
+      0
     );
-    const score = num(r.score, r.radarScore, r.launchScore, r.convictionScore, r.totalScore, v.score, 0);
-    const rawProb = num(r.launchProbability, r.tokenProbability, r.probability, r.confidence, v.probability);
-    const probability = rawProb !== null ? (rawProb <= 1 ? rawProb * 100 : rawProb) : null;
-    const tier = String(r.tier || r.convictionTier || r.grade || r.conviction || (score >= 80 ? "S" : score >= 65 ? "A" : score >= 45 ? "B" : "C"));
-    const slug = String(r.slug || r.id || (r.name || `protocol-${idx + 1}`).toLowerCase().replace(/[^a-z0-9]+/g, "-"));
-    const farm = normalizeFarm(r);
+    const impliedHigh = num(
+      r.impliedValueHigh ?? r.implied_fdv_high ?? r.fdvHigh ?? val.high ?? impliedValue * 1.45,
+      0
+    );
+    const tvl = num(r.tvl ?? r.tvlUsd ?? r.tvl_usd, 0);
+    const score = num(
+      r.score ?? r.radarScore ?? r.radar_score ?? r.compositeScore ?? r.launchScore ?? 0,
+      0
+    );
+    const steps = Array.isArray(farm.steps) ? farm.steps : Array.isArray(r.steps) ? r.steps : [];
+    const slug = String(r.slug || r.id || r.name || `protocol-${idx + 1}`)
+      .toLowerCase()
+      .replace(/[^a-z0-9-_]+/g, "-");
+    const tier = String(
+      r.tier || r.confidenceTier || r.confidence_tier || r.confidence || (score >= 75 ? "High" : score >= 50 ? "Medium" : "Speculative")
+    );
+    const difficulty = String(
+      farm.difficulty || farm.effort || r.farmDifficulty || r.difficulty || "Medium"
+    );
+    const watchlist = Boolean(
+      r.watchlist ?? r.inWatchlist ?? r.isWatchlist ?? r.on_watchlist ?? r.is_watchlist
+    );
+    const hasPoints = Boolean(
+      r.hasPoints ?? r.pointsProgram ?? r.has_points ?? r.points ?? farm.pointsProgram
+    );
+    const airdropValue = num(
+      r.impliedAirdrop ?? r.implied_airdrop ?? r.airdropValue ?? val.airdropUsd ?? impliedValue * 0.1,
+      0
+    );
+    const change7d = num(r.tvlChange7d ?? r.change_7d ?? r.change7d ?? NaN, NaN);
+    const change30d = num(r.tvlChange30d ?? r.change_30d ?? r.change30d ?? NaN, NaN);
+    const multiple = tvl > 0 ? impliedValue / tvl : num(val.multiple ?? r.fdvTvlMultiple, 0);
+
     return {
+      raw: r,
       rank: num(r.rank, idx + 1),
       slug,
-      name: String(r.name || r.protocol || slug),
-      category: String(r.category || r.sector || "DeFi"),
+      name: String(r.name || r.slug || `Protocol ${idx + 1}`),
+      category: String(r.category || "Uncategorized"),
       chains,
-      primaryChain: chains[0],
+      primaryChain: chains[0] || "Multi-Chain",
       tvl,
-      change1d: num(r.change_1d, r.change1d, m.change1d),
-      change7d: num(r.change_7d, r.change7d, r.tvlChange7d, m.change7d),
-      change30d: num(r.change_1m, r.change30d, r.tvlChange30d, r.growth30d, m.change30d),
-      impliedFdv,
-      fdvLow,
-      fdvHigh,
-      airdropPool,
-      fdvTvl: num(r.fdvToTvl, r.multiple, v.multiple, v.fdvTvl, tvl > 0 ? impliedFdv / tvl : null),
+      change7d,
+      change30d,
+      impliedValue,
+      impliedLow,
+      impliedHigh,
+      airdropValue,
+      multiple,
       score,
       tier,
-      tierKey: tierSlug(tier),
-      watchlist: Boolean(r.watchlist || r.isWatchlist || r.onWatchlist || r.inWatchlist),
-      raised: num(r.totalRaised, r.raised, r.funding, m.raised),
-      feesAnn: num(r.annualizedFees, r.feesAnn, r.fees365d, m.annualizedFees),
-      revAnn: num(r.annualizedRevenue, r.revAnn, r.revenue365d, m.annualizedRevenue),
-      probability,
-      description: String(r.description || r.summary || r.about || ""),
-      rationale: String(r.rationale || r.thesis || r.valuationThesis || r.whyNoToken || v.rationale || ""),
-      signals: Array.isArray(r.signals) ? r.signals : Array.isArray(r.catalysts) ? r.catalysts : Array.isArray(r.tags) ? r.tags : [],
-      comps: Array.isArray(r.comps) ? r.comps : Array.isArray(r.peers) ? r.peers : Array.isArray(v.comps) ? v.comps : [],
-      breakdown: r.scoreBreakdown || r.breakdown || v.breakdown || null,
-      url: r.url || r.website || "",
-      twitter: r.twitter || "",
-      farm,
-      searchHaystack: [
-        r.name, slug, r.category, chains.join(" "), tier, r.description, r.rationale,
-        farm.summary, farm.difficulty, farm.steps.map((s) => `${s.title} ${s.action}`).join(" "),
-      ].join(" ").toLowerCase(),
+      difficulty,
+      watchlist,
+      hasPoints,
+      stepsCount: steps.length,
+      farmSummary: String(farm.summary || farm.strategy || farm.headline || steps[0]?.title || steps[0] || ""),
+      searchBlob: [
+        r.name,
+        r.slug,
+        r.category,
+        r.description,
+        chains.join(" "),
+        tier,
+        difficulty,
+        watchlist ? "watchlist" : "",
+        hasPoints ? "points campaign" : "",
+      ]
+        .join(" ")
+        .toLowerCase(),
     };
   }
 
-  function loadPayload() {
-    const raw =
-      window.BOARD_DATA ||
-      window.TOKEN_RADAR_DATA ||
-      window.RADAR_DATA ||
-      window.DASHBOARD_DATA ||
-      window.__BOARD_DATA__ ||
-      window.DATA ||
-      null;
-    if (!raw) return { rows: [], meta: {} };
-    const arr = Array.isArray(raw) ? raw : raw.rows || raw.protocols || raw.board || raw.entries || raw.items || [];
-    const rows = arr.map(normalizeRow);
-    return { rows, meta: Array.isArray(raw) ? {} : raw.meta || raw.summary || raw };
+  function extractPayload(data) {
+    if (!data) return { rows: [], meta: {} };
+    if (Array.isArray(data)) return { rows: data, meta: {} };
+    const rows = data.rows || data.protocols || data.board || data.items || [];
+    const meta = data.meta || data.summary || {
+      generatedAt: data.generatedAt || data.generated_at || data.snapshotDate || data.snapshot_date,
+      totalScanned: data.totalScanned || data.total_scanned,
+      eligibleCount: data.eligibleCount || data.eligible_count || rows.length,
+    };
+    return { rows: Array.isArray(rows) ? rows : [], meta };
   }
 
-  const state = {
-    rows: [],
-    filtered: [],
-    meta: {},
-    selectedSlug: null,
-    columns: [],
-    checks: loadChecks(),
-    filters: { search: "", category: "ALL", chain: "ALL", tier: "ALL", watchlist: false, difficulty: "ALL" },
-    sort: { key: "rank", dir: "asc" },
-  };
+  async function loadData() {
+    const inline =
+      global.BOARD_DATA ||
+      global.__BOARD_DATA__ ||
+      global.RADAR_DATA ||
+      global.TOKEN_RADAR_DATA;
+    if (inline) return extractPayload(inline);
 
-  const els = {};
+    const scriptEl = pick(['script#board-data', 'script#radar-data', 'script[type="application/json"]']);
+    if (scriptEl && scriptEl.textContent.trim()) {
+      try {
+        return extractPayload(JSON.parse(scriptEl.textContent));
+      } catch (_) {}
+    }
 
-  function resolveColumn(th) {
-    const k = String(th.dataset.col || th.dataset.sort || th.textContent || "").trim().toLowerCase();
-    if (k === "#" || k.includes("rank")) return { key: "rank", sort: "rank" };
-    if (k.includes("protocol") || k.includes("name") || k.includes("project")) return { key: "protocol", sort: "name" };
-    if (k.includes("cat") || k.includes("sector")) return { key: "category", sort: "category" };
-    if (k.includes("chain") || k.includes("net") || k.includes("eco")) return { key: "chains", sort: "primaryChain" };
-    if (k.includes("tvl") && !k.includes("fdv") && !k.includes("mult")) return { key: "tvl", sort: "tvl" };
-    if (k.includes("7d") || k.includes("30d") || k.includes("grow") || k.includes("chg") || k.includes("change")) return { key: "growth", sort: "change30d" };
-    if (k.includes("airdrop") || k.includes("drop") || k.includes("pool") || k.includes("reward")) return { key: "airdrop", sort: "airdropPool" };
-    if (k.includes("implied") || k.includes("fdv") || k.includes("val")) return { key: "impliedFdv", sort: "impliedFdv" };
-    if (k.includes("prob") || k.includes("odds") || k.includes("conf")) return { key: "probability", sort: "probability" };
-    if (k.includes("raise") || k.includes("fund")) return { key: "raised", sort: "raised" };
-    if (k.includes("score") || k.includes("radar")) return { key: "score", sort: "score" };
-    if (k.includes("tier") || k.includes("grade") || k.includes("conv")) return { key: "tier", sort: "tier" };
-    if (k.includes("farm") || k.includes("effort") || k.includes("plan") || k.includes("action")) return { key: "farm", sort: "farmSteps" };
-    return { key: "text", sort: null };
+    for (const url of ["./board.json", "../board.json", "board.json"]) {
+      try {
+        const res = await fetch(url);
+        if (res.ok) return extractPayload(await res.json());
+      } catch (_) {}
+    }
+    return { rows: [], meta: {} };
   }
 
-  function renderCell(row, colKey) {
-    const chg = row.change30d !== null ? row.change30d : row.change7d;
-    const chgCls = chg === null ? "muted" : chg >= 0 ? "pos" : "neg";
-    switch (colKey) {
-      case "rank":
-        return `<td class="col-rank num"><span class="rank-num">${row.rank}</span></td>`;
-      case "protocol":
-        return `<td class="col-protocol"><div class="proto-cell"><span class="proto-name">${esc(row.name)}</span>${row.watchlist ? `<span class="badge badge-watch" title="Watchlist">★</span>` : ""}${row.farm.points ? `<span class="badge badge-pts" title="Points Program">PTS</span>` : ""}</div><div class="proto-sub">${esc(row.category)} · ${esc(row.primaryChain)}${row.chains.length > 1 ? ` +${row.chains.length - 1}` : ""}</div></td>`;
-      case "category":
-        return `<td class="col-category"><span class="pill pill-cat">${esc(row.category)}</span></td>`;
-      case "chains":
-        return `<td class="col-chains"><div class="chain-list">${row.chains.slice(0, 2).map((c) => `<span class="pill pill-chain">${esc(c)}</span>`).join("")}${row.chains.length > 2 ? `<span class="pill pill-more">+${row.chains.length - 2}</span>` : ""}</div></td>`;
-      case "tvl":
-        return `<td class="col-tvl num">${fmtUsd(row.tvl)}</td>`;
-      case "growth":
-        return `<td class="col-growth num ${chgCls}">${fmtPct(chg)}</td>`;
-      case "impliedFdv":
-        return `<td class="col-fdv num"><div class="fdv-main">${fmtUsd(row.impliedFdv)}</div>${row.fdvLow && row.fdvHigh ? `<div class="fdv-range">${fmtUsd(row.fdvLow)}–${fmtUsd(row.fdvHigh)}</div>` : ""}</td>`;
-      case "airdrop":
-        return `<td class="col-airdrop num">${fmtUsd(row.airdropPool)}</td>`;
-      case "probability":
-        return `<td class="col-prob num">${row.probability !== null ? `${row.probability.toFixed(0)}%` : "—"}</td>`;
-      case "raised":
-        return `<td class="col-raised num">${fmtUsd(row.raised)}</td>`;
-      case "score": {
-        const pct = Math.max(0, Math.min(100, row.score || 0));
-        return `<td class="col-score num"><div class="score-wrap"><span>${row.score.toFixed(1)}</span><div class="score-bar"><i style="width:${pct}%"></i></div></div></td>`;
+  function readUrlParams() {
+    const params = new URLSearchParams(global.location.search);
+    if (global.location.hash.includes("=")) {
+      const hashParams = new URLSearchParams(global.location.hash.replace(/^#\/?/, ""));
+      hashParams.forEach((v, k) => {
+        if (!params.has(k)) params.set(k, v);
+      });
+    }
+    const f = state.filters;
+    if (params.get("q") || params.get("search")) f.search = params.get("q") || params.get("search");
+    if (params.get("category")) f.category = params.get("category");
+    if (params.get("chain")) f.chain = params.get("chain");
+    if (params.get("tier")) f.tier = params.get("tier");
+    if (params.get("difficulty")) f.difficulty = params.get("difficulty");
+    if (params.get("minTvl")) f.minTvl = num(params.get("minTvl"), 0);
+    if (params.get("watchlist") === "1" || params.get("watchlist") === "true") f.watchlistOnly = true;
+    if (params.get("points") === "1" || params.get("points") === "true") f.pointsOnly = true;
+    if (params.get("sort")) state.sort.key = params.get("sort");
+    if (params.get("dir") === "asc" || params.get("dir") === "desc") state.sort.dir = params.get("dir");
+    if (params.get("protocol") || params.get("slug")) {
+      state.selectedSlug = (params.get("protocol") || params.get("slug")).toLowerCase();
+    }
+  }
+
+  function populateSelect(el, counts, allLabel) {
+    if (!el) return;
+    const entries = Array.from(counts.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    el.innerHTML =
+      `<option value="all">${esc(allLabel)}</option>` +
+      entries.map(([k, c]) => `<option value="${esc(k)}">${esc(k)} (${c})</option>`).join("");
+  }
+
+  function populateFilterOptions() {
+    const cats = new Map();
+    const chains = new Map();
+    const tiers = new Map();
+    const diffs = new Map();
+    for (const r of state.rows) {
+      cats.set(r.category, (cats.get(r.category) || 0) + 1);
+      tiers.set(r.tier, (tiers.get(r.tier) || 0) + 1);
+      diffs.set(r.difficulty, (diffs.get(r.difficulty) || 0) + 1);
+      for (const c of r.chains) chains.set(c, (chains.get(c) || 0) + 1);
+    }
+    populateSelect(pick(["#filter-category", "#category-filter", '[data-filter="category"]']), cats, "All Categories");
+    populateSelect(pick(["#filter-chain", "#chain-filter", '[data-filter="chain"]']), chains, "All Chains");
+    populateSelect(pick(["#filter-tier", "#filter-confidence", '[data-filter="tier"]']), tiers, "All Tiers");
+    populateSelect(pick(["#filter-difficulty", "#filter-risk", '[data-filter="difficulty"]']), diffs, "All Difficulties");
+    syncFilterControls();
+  }
+
+  function syncFilterControls() {
+    const f = state.filters;
+    const setVal = (sels, v) => {
+      const el = pick(sels);
+      if (el) el.value = String(v);
+    };
+    const setChk = (sels, v) => {
+      const el = pick(sels);
+      if (el) {
+        if (el.type === "checkbox") el.checked = Boolean(v);
+        else el.classList.toggle("active", Boolean(v));
       }
-      case "tier":
-        return `<td class="col-tier"><span class="tier-badge tier-${esc(row.tierKey.toLowerCase())}">${esc(row.tier)}</span></td>`;
-      case "farm":
-        return `<td class="col-farm"><span class="pill pill-farm">${esc(row.farm.difficulty)} · ${row.farm.steps.length} steps</span></td>`;
-      default:
-        return `<td>—</td>`;
-    }
+    };
+    setVal(["#search-input", "#filter-search", 'input[type="search"]', '[data-filter="search"]'], f.search);
+    setVal(["#filter-category", "#category-filter", '[data-filter="category"]'], f.category);
+    setVal(["#filter-chain", "#chain-filter", '[data-filter="chain"]'], f.chain);
+    setVal(["#filter-tier", "#filter-confidence", '[data-filter="tier"]'], f.tier);
+    setVal(["#filter-difficulty", "#filter-risk", '[data-filter="difficulty"]'], f.difficulty);
+    setVal(["#filter-min-tvl", "#min-tvl", '[data-filter="minTvl"]'], f.minTvl);
+    setChk(["#filter-watchlist", "#toggle-watchlist", '[data-filter="watchlist"]'], f.watchlistOnly);
+    setChk(["#filter-points", "#toggle-points", '[data-filter="points"]'], f.pointsOnly);
+    setVal(["#sort-select", "#filter-sort", "[data-sort-select]"], `${state.sort.key}:${state.sort.dir}`);
+    $$("[data-quick-filter]").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.quickFilter === f.quick);
+    });
   }
 
-  function populateSelect(selectEl, values, allLabel) {
-    if (!selectEl || selectEl.tagName !== "SELECT") return;
-    const prev = selectEl.value || "ALL";
-    if (selectEl.options.length <= 1) {
-      selectEl.innerHTML = `<option value="ALL">${esc(allLabel)}</option>` +
-        values.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
-      selectEl.value = prev;
-    }
-  }
-
-  function updateStats() {
-    const list = state.filtered;
-    const totalFdv = list.reduce((a, r) => a + (r.impliedFdv || 0), 0);
-    const totalTvl = list.reduce((a, r) => a + (r.tvl || 0), 0);
-    const totalAirdrop = list.reduce((a, r) => a + (r.airdropPool || 0), 0);
-    const watchCount = list.filter((r) => r.watchlist).length;
-    const setText = (sels, val) => { const el = q(sels); if (el) el.textContent = val; };
-
-    setText(["#stat-total", "#kpi-total", "[data-stat='total']"], String(list.length));
-    setText(["#stat-fdv", "#kpi-fdv", "#stat-implied-value", "[data-stat='fdv']", "[data-stat='implied']"], fmtUsd(totalFdv));
-    setText(["#stat-tvl", "#kpi-tvl", "[data-stat='tvl']"], fmtUsd(totalTvl));
-    setText(["#stat-airdrop", "#kpi-airdrop", "[data-stat='airdrop']"], fmtUsd(totalAirdrop));
-    setText(["#stat-watchlist", "#kpi-watchlist", "[data-stat='watchlist']"], `${watchCount} / ${state.rows.filter((r) => r.watchlist).length}`);
-    setText(["#result-count", "#filtered-count", "#table-count", ".result-count"], `Showing ${list.length} of ${state.rows.length} protocols`);
-  }
-
-  function renderActiveFilters() {
-    if (!els.activeFilters) return;
+  function applyFiltersAndSort() {
     const f = state.filters;
-    const chips = [];
-    if (f.search) chips.push({ key: "search", label: `Search: "${f.search}"` });
-    if (f.category !== "ALL") chips.push({ key: "category", label: `Category: ${f.category}` });
-    if (f.chain !== "ALL") chips.push({ key: "chain", label: `Chain: ${f.chain}` });
-    if (f.tier !== "ALL") chips.push({ key: "tier", label: `Tier: ${f.tier}` });
-    if (f.difficulty !== "ALL") chips.push({ key: "difficulty", label: `Effort: ${f.difficulty}` });
-    if (f.watchlist) chips.push({ key: "watchlist", label: "Watchlist Only" });
-    els.activeFilters.innerHTML = chips.map((c) =>
-      `<button type="button" class="filter-chip" data-clear="${esc(c.key)}">${esc(c.label)} <span aria-hidden="true">×</span></button>`
-    ).join("");
-    els.activeFilters.hidden = chips.length === 0;
-  }
+    const q = f.search.trim().toLowerCase();
+    const minTvl = num(f.minTvl, 0);
 
-  function sortVal(row, key) {
-    if (key === "farmSteps") return row.farm.steps.length;
-    if (key === "tier") {
-      const order = { S: 5, TIER1: 5, A: 4, TIER2: 4, B: 3, TIER3: 3, C: 2, D: 1 };
-      return order[row.tierKey] || 0;
-    }
-    return row[key];
-  }
-
-  function applyFilters() {
-    const f = state.filters;
-    const term = f.search.trim().toLowerCase();
-    const tKey = tierSlug(f.tier);
-
-    state.filtered = state.rows.filter((r) => {
-      if (term && !r.searchHaystack.includes(term)) return false;
-      if (f.category !== "ALL" && r.category.toLowerCase() !== f.category.toLowerCase()) return false;
-      if (f.chain !== "ALL" && !r.chains.some((c) => c.toLowerCase() === f.chain.toLowerCase())) return false;
-      if (f.tier !== "ALL" && r.tierKey !== tKey && !r.tierKey.startsWith(tKey)) return false;
-      if (f.difficulty !== "ALL" && r.farm.difficulty.toLowerCase() !== f.difficulty.toLowerCase()) return false;
-      if (f.watchlist && !r.watchlist) return false;
+    const out = state.rows.filter((r) => {
+      if (q && !r.searchBlob.includes(q)) return false;
+      if (f.category !== "all" && r.category !== f.category) return false;
+      if (f.chain !== "all" && !r.chains.includes(f.chain)) return false;
+      if (f.tier !== "all" && r.tier !== f.tier) return false;
+      if (f.difficulty !== "all" && r.difficulty !== f.difficulty) return false;
+      if (minTvl > 0 && r.tvl < minTvl) return false;
+      if (f.watchlistOnly && !r.watchlist) return false;
+      if (f.pointsOnly && !r.hasPoints) return false;
+      if (f.quick === "watchlist" && !r.watchlist) return false;
+      if (f.quick === "points" && !r.hasPoints) return false;
+      if (f.quick === "mega" && r.impliedValue < 1e9) return false;
+      if (f.quick === "easy" && !/low|easy|beginner/i.test(r.difficulty)) return false;
+      if (f.quick === "high-tvl" && r.tvl < 1e8) return false;
       return true;
     });
 
     const { key, dir } = state.sort;
     const mult = dir === "asc" ? 1 : -1;
-    state.filtered.sort((a, b) => {
-      const va = sortVal(a, key);
-      const vb = sortVal(b, key);
-      if (va === vb) return (b.impliedFdv - a.impliedFdv) || a.name.localeCompare(b.name);
-      if (va === null || va === undefined) return 1;
-      if (vb === null || vb === undefined) return -1;
-      if (typeof va === "string" || typeof vb === "string") return String(va).localeCompare(String(vb)) * mult;
-      return (va - vb) * mult;
+    out.sort((a, b) => {
+      const av = a[key];
+      const bv = b[key];
+      if (typeof av === "string" || typeof bv === "string") {
+        const cmp = String(av || "").localeCompare(String(bv || ""));
+        return cmp !== 0 ? cmp * mult : a.rank - b.rank;
+      }
+      const na = Number.isFinite(av) ? av : -Infinity;
+      const nb = Number.isFinite(bv) ? bv : -Infinity;
+      return na !== nb ? (na - nb) * mult : a.rank - b.rank;
     });
 
-    updateStats();
-    renderActiveFilters();
-    renderTable();
-    syncSortHeaders();
+    state.filtered = out;
+    renderAll();
+    document.dispatchEvent(new CustomEvent("radar:filter", { detail: { count: out.length, filters: { ...f } } }));
   }
 
-  function syncSortHeaders() {
-    for (const th of els.headers) {
-      const s = th.dataset.resolvedSort;
-      th.classList.remove("sort-asc", "sort-desc");
-      th.removeAttribute("aria-sort");
-      if (s && s === state.sort.key) {
-        th.classList.add(state.sort.dir === "asc" ? "sort-asc" : "sort-desc");
-        th.setAttribute("aria-sort", state.sort.dir === "asc" ? "ascending" : "descending");
-      }
-    }
+  function renderKpis() {
+    const rows = state.filtered;
+    const all = state.rows;
+    const totalTvl = rows.reduce((s, r) => s + r.tvl, 0);
+    const totalImplied = rows.reduce((s, r) => s + r.impliedValue, 0);
+    const totalAirdrop = rows.reduce((s, r) => s + r.airdropValue, 0);
+    const watchlistCount = rows.filter((r) => r.watchlist).length;
+    const pointsCount = rows.filter((r) => r.hasPoints).length;
+    const avgScore = rows.length ? rows.reduce((s, r) => s + r.score, 0) / rows.length : 0;
+
+    const setText = (sels, text) => {
+      const el = pick(sels);
+      if (el) el.textContent = text;
+    };
+
+    setText(["#kpi-count", "#kpi-total-protocols", '[data-kpi="count"]'], `${rows.length} / ${all.length}`);
+    setText(["#kpi-tvl", "#kpi-total-tvl", '[data-kpi="tvl"]'], fmtUsd(totalTvl));
+    setText(["#kpi-implied", "#kpi-total-implied", "#kpi-total-fdv", '[data-kpi="implied"]'], fmtUsd(totalImplied));
+    setText(["#kpi-airdrop", "#kpi-total-airdrop", '[data-kpi="airdrop"]'], fmtUsd(totalAirdrop));
+    setText(["#kpi-watchlist", '[data-kpi="watchlist"]'], `${watchlistCount}`);
+    setText(["#kpi-points", '[data-kpi="points"]'], `${pointsCount}`);
+    setText(["#kpi-score", "#kpi-avg-score", '[data-kpi="score"]'], avgScore.toFixed(1));
+    setText(["#results-count", "#row-count", '[data-results-count]'], `Showing ${rows.length} of ${all.length} protocols`);
+
+    const snap = state.meta.snapshotDate || state.meta.snapshot_date || state.meta.generatedAt || state.meta.generated_at;
+    if (snap) setText(["#snapshot-date", "#meta-snapshot", '[data-meta="snapshot"]'], String(snap).slice(0, 10));
+  }
+
+  function renderActiveChips() {
+    const host = pick(["#active-filters", ".active-filters"]);
+    if (!host) return;
+    const f = state.filters;
+    const chips = [];
+    if (f.search) chips.push(["search", `Search: "${f.search}"`]);
+    if (f.category !== "all") chips.push(["category", `Category: ${f.category}`]);
+    if (f.chain !== "all") chips.push(["chain", `Chain: ${f.chain}`]);
+    if (f.tier !== "all") chips.push(["tier", `Tier: ${f.tier}`]);
+    if (f.difficulty !== "all") chips.push(["difficulty", `Difficulty: ${f.difficulty}`]);
+    if (num(f.minTvl, 0) > 0) chips.push(["minTvl", `TVL ≥ ${fmtUsd(f.minTvl)}`]);
+    if (f.watchlistOnly) chips.push(["watchlistOnly", "Watchlist Only"]);
+    if (f.pointsOnly) chips.push(["pointsOnly", "Points Active"]);
+    if (f.quick !== "all") chips.push(["quick", `Preset: ${f.quick}`]);
+
+    host.innerHTML = chips
+      .map(
+        ([k, label]) =>
+          `<button type="button" class="filter-chip active" data-clear-filter="${esc(k)}">${esc(label)} <span aria-hidden="true">×</span></button>`
+      )
+      .join("");
+  }
+
+  function renderSortIndicators() {
+    $$("th[data-sort]").forEach((th) => {
+      const active = th.dataset.sort === state.sort.key;
+      th.classList.toggle("sorted", active);
+      th.classList.toggle("sort-asc", active && state.sort.dir === "asc");
+      th.classList.toggle("sort-desc", active && state.sort.dir === "desc");
+      th.setAttribute("aria-sort", active ? (state.sort.dir === "asc" ? "ascending" : "descending") : "none");
+    });
   }
 
   function renderTable() {
-    if (!els.tbody) return;
+    const tbody = pick(["#board-tbody", "#protocol-tbody", "#radar-tbody", "#board-table tbody", "table tbody"]);
+    const emptyEl = pick(["#empty-state", ".empty-state"]);
+    if (!tbody) return;
+
     if (!state.filtered.length) {
-      els.tbody.innerHTML = `<tr class="empty-row"><td colspan="${Math.max(1, state.columns.length)}">No protocols match the current filters.</td></tr>`;
-      if (els.emptyState) els.emptyState.hidden = false;
+      tbody.innerHTML = `<tr><td colspan="9" class="empty-cell">No tokenless protocols match the active filters.</td></tr>`;
+      if (emptyEl) emptyEl.hidden = false;
       return;
     }
-    if (els.emptyState) els.emptyState.hidden = true;
-    els.tbody.innerHTML = state.filtered.map((row) => {
-      const active = row.slug === state.selectedSlug ? " is-selected selected" : "";
-      const watch = row.watchlist ? " is-watchlist" : "";
-      return `<tr class="protocol-row${active}${watch}" data-slug="${esc(row.slug)}" tabindex="0">${state.columns.map((c) => renderCell(row, c.key)).join("")}</tr>`;
-    }).join("");
+    if (emptyEl) emptyEl.hidden = true;
+
+    const html = state.filtered
+      .map((r) => {
+        const selected = r.slug === state.selectedSlug;
+        const deltaClass = Number.isFinite(r.change7d) ? (r.change7d >= 0 ? "pos" : "neg") : "muted";
+        const tierClass = r.tier.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+        const diffClass = r.difficulty.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+        const chainTags = r.chains.slice(0, 2).map((c) => `<span class="tag chain-tag">${esc(c)}</span>`).join("") +
+          (r.chains.length > 2 ? `<span class="tag chain-tag">+${r.chains.length - 2}</span>` : "");
+        const badges =
+          (r.watchlist ? `<span class="badge badge-watchlist" title="Watchlist">★</span>` : "") +
+          (r.hasPoints ? `<span class="badge badge-points" title="Active Points">PTS</span>` : "");
+
+        return `<tr class="board-row${selected ? " is-selected selected" : ""}" data-slug="${esc(r.slug)}" tabindex="0" role="button" aria-selected="${selected}">
+          <td class="col-rank num">#${r.rank}</td>
+          <td class="col-name">
+            <div class="proto-title"><strong>${esc(r.name)}</strong>${badges}</div>
+            <div class="proto-chains">${chainTags}</div>
+          </td>
+          <td class="col-category"><span class="tag cat-tag">${esc(r.category)}</span></td>
+          <td class="col-tvl num">
+            <div>${fmtUsd(r.tvl)}</div>
+            <div class="sub ${deltaClass}">${Number.isFinite(r.change7d) ? `${fmtPct(r.change7d)} 7d` : "—"}</div>
+          </td>
+          <td class="col-implied num">
+            <div class="implied-main">${fmtUsd(r.impliedValue)}</div>
+            <div class="sub muted">${fmtUsd(r.impliedLow)}–${fmtUsd(r.impliedHigh)}</div>
+          </td>
+          <td class="col-airdrop num">
+            <div>${fmtUsd(r.airdropValue)}</div>
+            <div class="sub muted">${r.multiple > 0 ? `${r.multiple.toFixed(1)}x TVL` : "—"}</div>
+          </td>
+          <td class="col-score num">
+            <div class="score-wrap">
+              <span>${r.score.toFixed(0)}</span>
+              <span class="score-bar"><i style="width:${Math.max(4, Math.min(100, r.score))}%"></i></span>
+            </div>
+            <span class="tier-pill tier-${esc(tierClass)}">${esc(r.tier)}</span>
+          </td>
+          <td class="col-farm">
+            <span class="diff-pill diff-${esc(diffClass)}">${esc(r.difficulty)}</span>
+            <div class="sub muted farm-preview">${esc(r.farmSummary || `${r.stepsCount} steps`)}</div>
+          </td>
+        </tr>`;
+      })
+      .join("");
+
+    tbody.innerHTML = html;
   }
 
-  function renderDetailHtml(row) {
-    const checked = state.checks[row.slug] || {};
-    const doneCount = row.farm.steps.filter((_, i) => checked[i]).length;
-    const totalSteps = row.farm.steps.length;
-    const progPct = totalSteps ? Math.round((doneCount / totalSteps) * 100) : 0;
-    const rangeSpan = row.fdvLow && row.fdvHigh && row.fdvHigh > row.fdvLow
-      ? Math.max(5, Math.min(95, ((row.impliedFdv - row.fdvLow) / (row.fdvHigh - row.fdvLow)) * 100))
-      : 50;
-
-    const breakdownEntries = row.breakdown && typeof row.breakdown === "object"
-      ? Object.entries(row.breakdown).filter(([, v]) => typeof v === "number" && Number.isFinite(v))
-      : [];
-
-    return `
-      <div class="detail-header-block">
-        <div class="detail-badges">
-          <span class="tier-badge tier-${esc(row.tierKey.toLowerCase())}">Tier ${esc(row.tier)}</span>
-          <span class="pill pill-cat">${esc(row.category)}</span>
-          ${row.watchlist ? `<span class="badge badge-watch">★ Watchlist</span>` : ""}
-          ${row.farm.points ? `<span class="badge badge-pts">Points Active</span>` : ""}
-          <span class="pill">Rank #${row.rank}</span>
-        </div>
-        <h2 class="detail-title">${esc(row.name)}</h2>
-        ${row.description ? `<p class="detail-desc">${esc(row.description)}</p>` : ""}
-        <div class="chain-list">${row.chains.map((c) => `<span class="pill pill-chain">${esc(c)}</span>`).join("")}</div>
-      </div>
-
-      <div class="detail-metrics-grid">
-        <div class="metric-card accent"><span class="metric-label">Implied Launch FDV</span><strong class="metric-val">${fmtUsd(row.impliedFdv)}</strong><span class="metric-sub">${row.fdvLow && row.fdvHigh ? `${fmtUsd(row.fdvLow)} – ${fmtUsd(row.fdvHigh)}` : "Base estimate"}</span></div>
-        <div class="metric-card"><span class="metric-label">Est. Airdrop Pool</span><strong class="metric-val">${fmtUsd(row.airdropPool)}</strong><span class="metric-sub">${row.impliedFdv && row.airdropPool ? `${((row.airdropPool / row.impliedFdv) * 100).toFixed(1)}% of FDV` : "Community alloc"}</span></div>
-        <div class="metric-card"><span class="metric-label">Total Value Locked</span><strong class="metric-val">${fmtUsd(row.tvl)}</strong><span class="metric-sub">30d: ${fmtPct(row.change30d)} · 7d: ${fmtPct(row.change7d)}</span></div>
-        <div class="metric-card"><span class="metric-label">Radar Score</span><strong class="metric-val">${row.score.toFixed(1)} / 100</strong><span class="metric-sub">${row.probability !== null ? `Launch odds: ${row.probability.toFixed(0)}%` : `FDV/TVL: ${row.fdvTvl ? row.fdvTvl.toFixed(2) + "x" : "—"}`}</span></div>
-        ${row.raised ? `<div class="metric-card"><span class="metric-label">Funding Raised</span><strong class="metric-val">${fmtUsd(row.raised)}</strong><span class="metric-sub">Reported VC backing</span></div>` : ""}
-        ${row.feesAnn || row.revAnn ? `<div class="metric-card"><span class="metric-label">Annualized Fees / Rev</span><strong class="metric-val">${fmtUsd(row.feesAnn || row.revAnn)}</strong><span class="metric-sub">${row.revAnn ? `Rev: ${fmtUsd(row.revAnn)}` : "Protocol fees"}</span></div>` : ""}
-      </div>
-
-      ${row.fdvLow && row.fdvHigh ? `
-      <div class="detail-section">
-        <h3>Valuation Range</h3>
-        <div class="range-bar-wrap">
-          <div class="range-labels"><span>Bear ${fmtUsd(row.fdvLow)}</span><span>Base ${fmtUsd(row.impliedFdv)}</span><span>Bull ${fmtUsd(row.fdvHigh)}</span></div>
-          <div class="range-track"><span class="range-pin" style="left:${rangeSpan}%"></span></div>
-        </div>
-      </div>` : ""}
-
-      ${row.rationale || row.signals.length ? `
-      <div class="detail-section">
-        <h3>Token Launch Thesis & Signals</h3>
-        ${row.rationale ? `<p class="detail-rationale">${esc(row.rationale)}</p>` : ""}
-        ${row.signals.length ? `<div class="signal-list">${row.signals.map((s) => `<span class="pill pill-signal">${esc(typeof s === "string" ? s : s.label || s.name || "")}</span>`).join("")}</div>` : ""}
-      </div>` : ""}
-
-      ${breakdownEntries.length ? `
-      <div class="detail-section">
-        <h3>Score Breakdown</h3>
-        <div class="breakdown-list">${breakdownEntries.map(([k, val]) => {
-          const pct = Math.max(0, Math.min(100, val <= 1 ? val * 100 : val));
-          return `<div class="breakdown-row"><span>${esc(k.replace(/([A-Z])/g, " $1"))}</span><div class="score-bar"><i style="width:${pct}%"></i></div><strong>${val <= 1 ? (val * 100).toFixed(0) : val.toFixed(1)}</strong></div>`;
-        }).join("")}</div>
-      </div>` : ""}
-
-      ${row.comps.length ? `
-      <div class="detail-section">
-        <h3>Comparable Launches</h3>
-        <div class="comp-list">${row.comps.slice(0, 5).map((c) => `<span class="pill pill-comp">${esc(typeof c === "string" ? c : `${c.name || c.protocol || "Peer"}${c.fdv ? " (" + fmtUsd(c.fdv) + ")" : ""}`)}</span>`).join("")}</div>
-      </div>` : ""}
-
-      <div class="detail-section farm-section">
-        <div class="farm-head">
-          <h3>Farming Playbook</h3>
-          <button type="button" class="btn-copy-plan" data-copy-plan="${esc(row.slug)}">Copy Plan</button>
-        </div>
-        ${row.farm.summary ? `<p class="farm-summary">${esc(row.farm.summary)}</p>` : ""}
-        <div class="farm-meta">
-          <span class="pill">Difficulty: ${esc(row.farm.difficulty)}</span>
-          ${row.farm.capital ? `<span class="pill">Capital: ${esc(row.farm.capital)}</span>` : ""}
-          ${row.farm.risk ? `<span class="pill">Risk: ${esc(row.farm.risk)}</span>` : ""}
-          ${row.farm.timeline ? `<span class="pill">Cadence: ${esc(row.farm.timeline)}</span>` : ""}
-        </div>
-        <div class="farm-progress">
-          <span>Checklist Progress: <strong>${doneCount} / ${totalSteps}</strong></span>
-          <div class="score-bar"><i style="width:${progPct}%"></i></div>
-        </div>
-        <ol class="farm-steps">${row.farm.steps.map((s, i) => `
-          <li class="farm-step${checked[i] ? " is-done" : ""}">
-            <label class="step-label">
-              <input type="checkbox" class="step-check" data-slug="${esc(row.slug)}" data-step="${i}" ${checked[i] ? "checked" : ""}>
-              <div class="step-body">
-                <div class="step-title"><strong>${esc(s.title)}</strong>${s.effort ? `<span class="pill pill-effort">${esc(s.effort)}</span>` : ""}</div>
-                ${s.action ? `<p class="step-action">${esc(s.action)}</p>` : ""}
-                ${s.detail ? `<p class="step-detail">${esc(s.detail)}</p>` : ""}
-              </div>
-            </label>
-          </li>`).join("")}
-        </ol>
-        ${row.farm.risks.length ? `<div class="farm-callout"><strong>Key Risks:</strong><ul>${row.farm.risks.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}
-      </div>`;
-  }
-
-  function openDetail(slug) {
-    const row = state.rows.find((r) => r.slug === slug);
-    if (!row) return;
-    state.selectedSlug = slug;
-    const target = els.detailBody || els.detailPanel;
-    if (target) target.innerHTML = renderDetailHtml(row);
-    if (els.detailPanel) {
-      els.detailPanel.hidden = false;
-      els.detailPanel.classList.remove("hidden", "is-hidden");
-      els.detailPanel.classList.add("open", "is-open", "active", "visible");
-      els.detailPanel.setAttribute("aria-hidden", "false");
-    }
-    if (els.backdrop) {
-      els.backdrop.hidden = false;
-      els.backdrop.classList.add("open", "is-open", "active", "visible");
-    }
+  function renderAll() {
+    renderKpis();
+    renderActiveChips();
+    renderSortIndicators();
     renderTable();
+  }
+
+  function openDetailPanel(row) {
+    const panel = pick(["#detail-panel", "#detail-drawer", "#detail-modal", "#detail-view", "#protocol-detail", ".detail-drawer", ".detail-panel"]);
+    const backdrop = pick(["#detail-backdrop", "#drawer-backdrop", ".detail-backdrop"]);
+    if (panel) {
+      panel.classList.add("open", "is-open");
+      panel.hidden = false;
+      panel.setAttribute("aria-hidden", "false");
+    }
+    if (backdrop) {
+      backdrop.classList.add("open", "is-open");
+      backdrop.hidden = false;
+    }
+
+    const ctx = {
+      row,
+      raw: row.raw,
+      allRows: state.rows,
+      filteredRows: state.filtered,
+      meta: state.meta,
+      close: closeDetail,
+      selectBySlug,
+      formatUsd: fmtUsd,
+      formatPct: fmtPct,
+    };
+
+    let handled = false;
+    const detailApi = global.RadarDetail || global.DetailView || global.DetailDrawer || global.DetailPanel;
+    if (detailApi) {
+      if (typeof detailApi.open === "function") {
+        detailApi.open(row.raw, ctx);
+        handled = true;
+      } else if (typeof detailApi.render === "function") {
+        detailApi.render(row.raw, panel, ctx);
+        handled = true;
+      } else if (typeof detailApi.show === "function") {
+        detailApi.show(row.raw, ctx);
+        handled = true;
+      }
+    } else if (typeof global.renderProtocolDetail === "function") {
+      global.renderProtocolDetail(row.raw, panel, ctx);
+      handled = true;
+    } else if (typeof global.renderDetail === "function") {
+      global.renderDetail(row.raw, panel, ctx);
+      handled = true;
+    } else if (typeof global.openDetail === "function") {
+      global.openDetail(row.raw, ctx);
+      handled = true;
+    }
+
+    if (!handled && panel) {
+      const body = pick(["#detail-body", "#detail-content", ".detail-body"]) || panel;
+      const steps = row.raw.farmPlan?.steps || row.raw.farm_plan?.steps || row.raw.farming?.steps || [];
+      body.innerHTML = `<div class="detail-fallback">
+        <h2>${esc(row.name)} <span class="tag">${esc(row.category)}</span></h2>
+        <p>Rank #${row.rank} · TVL ${fmtUsd(row.tvl)} · Implied FDV ${fmtUsd(row.impliedValue)} (${fmtUsd(row.impliedLow)}–${fmtUsd(row.impliedHigh)})</p>
+        <h3>Farming Steps (${steps.length})</h3>
+        <ol>${steps.map((s) => `<li>${esc(typeof s === "string" ? s : s.title || s.action || s.description || "")}</li>`).join("")}</ol>
+      </div>`;
+    }
+  }
+
+  function selectBySlug(slug, scrollIntoView = false) {
+    if (!slug) return;
+    const norm = String(slug).toLowerCase();
+    const row = state.rows.find((r) => r.slug === norm || r.name.toLowerCase() === norm);
+    if (!row) return;
+    state.selectedSlug = row.slug;
+    $$("tr.board-row").forEach((tr) => {
+      const match = tr.dataset.slug === row.slug;
+      tr.classList.toggle("is-selected", match);
+      tr.classList.toggle("selected", match);
+      tr.setAttribute("aria-selected", String(match));
+      if (match && scrollIntoView) tr.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+    openDetailPanel(row);
+    document.dispatchEvent(new CustomEvent("radar:select", { detail: { row: row.raw, normalized: row } }));
   }
 
   function closeDetail() {
     state.selectedSlug = null;
-    if (els.detailPanel) {
-      els.detailPanel.classList.remove("open", "is-open", "active", "visible");
-      els.detailPanel.setAttribute("aria-hidden", "true");
-      if (!els.detailPanel.classList.contains("detail-static")) els.detailPanel.hidden = true;
+    const panel = pick(["#detail-panel", "#detail-drawer", "#detail-modal", "#detail-view", "#protocol-detail", ".detail-drawer", ".detail-panel"]);
+    const backdrop = pick(["#detail-backdrop", "#drawer-backdrop", ".detail-backdrop"]);
+    if (panel) {
+      panel.classList.remove("open", "is-open");
+      panel.setAttribute("aria-hidden", "true");
     }
-    if (els.backdrop) {
-      els.backdrop.classList.remove("open", "is-open", "active", "visible");
-      els.backdrop.hidden = true;
+    if (backdrop) backdrop.classList.remove("open", "is-open");
+    const detailApi = global.RadarDetail || global.DetailView || global.DetailDrawer || global.DetailPanel;
+    if (detailApi && typeof detailApi.close === "function") {
+      try { detailApi.close(); } catch (_) {}
     }
-    renderTable();
-  }
-
-  function copyFarmPlan(slug, btn) {
-    const row = state.rows.find((r) => r.slug === slug);
-    if (!row) return;
-    const text = [
-      `${row.name} — Token Launch Radar Farming Plan`,
-      `Category: ${row.category} | Chains: ${row.chains.join(", ")} | Tier: ${row.tier}`,
-      `Implied FDV: ${fmtUsd(row.impliedFdv)} | Est. Airdrop: ${fmtUsd(row.airdropPool)} | TVL: ${fmtUsd(row.tvl)}`,
-      "",
-      ...row.farm.steps.map((s, i) => `${i + 1}. ${s.title}: ${s.action}${s.detail ? ` (${s.detail})` : ""}`),
-    ].join("\n");
-    const done = () => {
-      if (!btn) return;
-      const orig = btn.textContent;
-      btn.textContent = "Copied!";
-      setTimeout(() => { btn.textContent = orig; }, 1400);
-    };
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(done).catch(done);
-    } else {
-      done();
-    }
-  }
-
-  function syncControls() {
-    if (els.search) els.search.value = state.filters.search;
-    if (els.category) els.category.value = state.filters.category;
-    if (els.chain) els.chain.value = state.filters.chain;
-    if (els.tier) els.tier.value = state.filters.tier;
-    if (els.difficulty) els.difficulty.value = state.filters.difficulty;
-    if (els.watchlist) {
-      if (els.watchlist.type === "checkbox") els.watchlist.checked = state.filters.watchlist;
-      else {
-        els.watchlist.classList.toggle("active", state.filters.watchlist);
-        els.watchlist.setAttribute("aria-pressed", String(state.filters.watchlist));
-      }
-    }
-    for (const btn of els.tierBtns) {
-      const t = btn.dataset.tier || "ALL";
-      const on = tierSlug(t) === tierSlug(state.filters.tier) || (t === "ALL" && state.filters.tier === "ALL");
-      btn.classList.toggle("active", on);
-      btn.setAttribute("aria-pressed", String(on));
-    }
+    $$("tr.board-row.is-selected, tr.board-row.selected").forEach((tr) => {
+      tr.classList.remove("is-selected", "selected");
+      tr.setAttribute("aria-selected", "false");
+    });
   }
 
   function resetFilters() {
-    state.filters = { search: "", category: "ALL", chain: "ALL", tier: "ALL", watchlist: false, difficulty: "ALL" };
-    syncControls();
-    applyFilters();
+    state.filters = {
+      search: "",
+      category: "all",
+      chain: "all",
+      tier: "all",
+      difficulty: "all",
+      minTvl: 0,
+      watchlistOnly: false,
+      pointsOnly: false,
+      quick: "all",
+    };
+    state.sort = { key: "impliedValue", dir: "desc" };
+    syncFilterControls();
+    applyFiltersAndSort();
   }
 
-  function readUrlParams() {
-    const params = new URLSearchParams(window.location.search);
-    if (window.location.hash && window.location.hash.includes("=")) {
-      const h = new URLSearchParams(window.location.hash.slice(1));
-      h.forEach((v, k) => { if (!params.has(k)) params.set(k, v); });
+  function exportCsv() {
+    const header = ["Rank", "Protocol", "Category", "Chains", "TVL_USD", "Implied_FDV_USD", "Implied_Airdrop_USD", "Score", "Tier", "Difficulty", "Watchlist", "Points"];
+    const lines = [header.join(",")];
+    for (const r of state.filtered) {
+      const cells = [r.rank, r.name, r.category, r.chains.join("|"), Math.round(r.tvl), Math.round(r.impliedValue), Math.round(r.airdropValue), r.score.toFixed(1), r.tier, r.difficulty, r.watchlist, r.hasPoints];
+      lines.push(cells.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","));
     }
-    if (params.get("q") || params.get("search")) state.filters.search = params.get("q") || params.get("search");
-    if (params.get("category")) state.filters.category = params.get("category");
-    if (params.get("chain")) state.filters.chain = params.get("chain");
-    if (params.get("tier")) state.filters.tier = params.get("tier");
-    if (params.get("difficulty")) state.filters.difficulty = params.get("difficulty");
-    if (params.get("watchlist") === "1" || params.get("watchlist") === "true") state.filters.watchlist = true;
-    if (params.get("sort")) state.sort.key = params.get("sort");
-    if (params.get("dir") === "asc" || params.get("dir") === "desc") state.sort.dir = params.get("dir");
-    return params.get("protocol") || params.get("detail") || params.get("slug");
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "token-launch-radar.csv";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
   function bindEvents() {
-    if (els.search) {
-      els.search.addEventListener("input", (e) => {
-        state.filters.search = e.target.value;
-        applyFilters();
+    let searchTimer = null;
+    const searchEl = pick(["#search-input", "#filter-search", 'input[type="search"]', '[data-filter="search"]']);
+    if (searchEl) {
+      searchEl.addEventListener("input", () => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => {
+          state.filters.search = searchEl.value;
+          applyFiltersAndSort();
+        }, 120);
       });
     }
-    if (els.category) els.category.addEventListener("change", (e) => { state.filters.category = e.target.value; applyFilters(); });
-    if (els.chain) els.chain.addEventListener("change", (e) => { state.filters.chain = e.target.value; applyFilters(); });
-    if (els.tier) els.tier.addEventListener("change", (e) => { state.filters.tier = e.target.value; syncControls(); applyFilters(); });
-    if (els.difficulty) els.difficulty.addEventListener("change", (e) => { state.filters.difficulty = e.target.value; applyFilters(); });
-    if (els.watchlist) {
-      const ev = els.watchlist.type === "checkbox" ? "change" : "click";
-      els.watchlist.addEventListener(ev, () => {
-        state.filters.watchlist = els.watchlist.type === "checkbox" ? els.watchlist.checked : !state.filters.watchlist;
-        syncControls();
-        applyFilters();
+
+    const bindSelect = (sels, key, numeric = false) => {
+      const el = pick(sels);
+      if (!el) return;
+      el.addEventListener("change", () => {
+        state.filters[key] = numeric ? num(el.value, 0) : el.value;
+        applyFiltersAndSort();
+      });
+    };
+    bindSelect(["#filter-category", "#category-filter", '[data-filter="category"]'], "category");
+    bindSelect(["#filter-chain", "#chain-filter", '[data-filter="chain"]'], "chain");
+    bindSelect(["#filter-tier", "#filter-confidence", '[data-filter="tier"]'], "tier");
+    bindSelect(["#filter-difficulty", "#filter-risk", '[data-filter="difficulty"]'], "difficulty");
+    bindSelect(["#filter-min-tvl", "#min-tvl", '[data-filter="minTvl"]'], "minTvl", true);
+
+    const bindToggle = (sels, key) => {
+      const el = pick(sels);
+      if (!el) return;
+      const evt = el.type === "checkbox" ? "change" : "click";
+      el.addEventListener(evt, () => {
+        state.filters[key] = el.type === "checkbox" ? el.checked : !state.filters[key];
+        syncFilterControls();
+        applyFiltersAndSort();
+      });
+    };
+    bindToggle(["#filter-watchlist", "#toggle-watchlist", '[data-filter="watchlist"]'], "watchlistOnly");
+    bindToggle(["#filter-points", "#toggle-points", '[data-filter="points"]'], "pointsOnly");
+
+    const sortSel = pick(["#sort-select", "#filter-sort", "[data-sort-select]"]);
+    if (sortSel) {
+      sortSel.addEventListener("change", () => {
+        const [k, d] = sortSel.value.split(":");
+        state.sort.key = k || "impliedValue";
+        state.sort.dir = d || "desc";
+        applyFiltersAndSort();
       });
     }
-    for (const btn of els.tierBtns) {
-      btn.addEventListener("click", () => {
-        const t = btn.dataset.tier || "ALL";
-        state.filters.tier = state.filters.tier === t && t !== "ALL" ? "ALL" : t;
-        syncControls();
-        applyFilters();
-      });
-    }
-    if (els.sortSelect) {
-      els.sortSelect.addEventListener("change", (e) => {
-        const [k, d] = String(e.target.value).split(":");
-        state.sort.key = k || "impliedFdv";
-        state.sort.dir = d || (k === "rank" || k === "name" ? "asc" : "desc");
-        applyFilters();
-      });
-    }
-    if (els.resetBtn) els.resetBtn.addEventListener("click", resetFilters);
-    if (els.activeFilters) {
-      els.activeFilters.addEventListener("click", (e) => {
-        const btn = e.target.closest("[data-clear]");
-        if (!btn) return;
-        const k = btn.dataset.clear;
-        state.filters[k] = k === "watchlist" ? false : k === "search" ? "" : "ALL";
-        syncControls();
-        applyFilters();
-      });
-    }
-    for (const th of els.headers) {
-      const sortKey = th.dataset.resolvedSort;
-      if (!sortKey) continue;
-      th.classList.add("sortable");
+
+    $$("th[data-sort]").forEach((th) => {
       th.addEventListener("click", () => {
-        if (state.sort.key === sortKey) state.sort.dir = state.sort.dir === "asc" ? "desc" : "asc";
+        const key = th.dataset.sort;
+        if (state.sort.key === key) state.sort.dir = state.sort.dir === "desc" ? "asc" : "desc";
         else {
-          state.sort.key = sortKey;
-          state.sort.dir = sortKey === "rank" || sortKey === "name" ? "asc" : "desc";
+          state.sort.key = key;
+          state.sort.dir = key === "rank" || key === "name" ? "asc" : "desc";
         }
-        applyFilters();
+        syncFilterControls();
+        applyFiltersAndSort();
       });
-    }
-    if (els.tbody) {
-      els.tbody.addEventListener("click", (e) => {
-        const tr = e.target.closest("tr[data-slug]");
-        if (tr) openDetail(tr.dataset.slug);
+    });
+
+    $$("[data-quick-filter]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const q = btn.dataset.quickFilter;
+        state.filters.quick = state.filters.quick === q ? "all" : q;
+        syncFilterControls();
+        applyFiltersAndSort();
       });
-      els.tbody.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          const tr = e.target.closest("tr[data-slug]");
-          if (tr) { e.preventDefault(); openDetail(tr.dataset.slug); }
-        }
-      });
-    }
-    if (els.detailPanel) {
-      els.detailPanel.addEventListener("change", (e) => {
-        const cb = e.target.closest(".step-check");
-        if (!cb) return;
-        const slug = cb.dataset.slug;
-        const step = Number(cb.dataset.step);
-        state.checks[slug] = state.checks[slug] || {};
-        state.checks[slug][step] = cb.checked;
-        saveChecks(state.checks);
-        openDetail(slug);
-      });
-      els.detailPanel.addEventListener("click", (e) => {
-        const copyBtn = e.target.closest("[data-copy-plan]");
-        if (copyBtn) copyFarmPlan(copyBtn.dataset.copyPlan, copyBtn);
-        if (e.target.closest("#detail-close, #close-detail, .detail-close, [data-action='close-detail']")) closeDetail();
-      });
-    }
-    if (els.closeBtn) els.closeBtn.addEventListener("click", closeDetail);
-    if (els.backdrop) els.backdrop.addEventListener("click", closeDetail);
+    });
+
+    const resetBtn = pick(["#reset-filters", "#clear-filters", "#btn-reset", '[data-action="reset-filters"]']);
+    if (resetBtn) resetBtn.addEventListener("click", resetFilters);
+
+    const csvBtn = pick(["#export-csv", '[data-action="export-csv"]']);
+    if (csvBtn) csvBtn.addEventListener("click", exportCsv);
+
+    const closeBtn = pick(["#detail-close", "#close-detail", '[data-action="close-detail"]', ".detail-close"]);
+    if (closeBtn) closeBtn.addEventListener("click", closeDetail);
+
+    const backdrop = pick(["#detail-backdrop", "#drawer-backdrop", ".detail-backdrop"]);
+    if (backdrop) backdrop.addEventListener("click", closeDetail);
+
+    document.addEventListener("click", (e) => {
+      const clearChip = e.target.closest("[data-clear-filter]");
+      if (clearChip) {
+        const k = clearChip.dataset.clearFilter;
+        state.filters[k] = k === "minTvl" ? 0 : k.endsWith("Only") ? false : k === "search" ? "" : "all";
+        syncFilterControls();
+        applyFiltersAndSort();
+        return;
+      }
+      const tr = e.target.closest("tr.board-row[data-slug]");
+      if (tr) selectBySlug(tr.dataset.slug);
+    });
 
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && state.selectedSlug) closeDetail();
-      if (e.key === "/" && els.search && document.activeElement !== els.search && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) {
-        e.preventDefault();
-        els.search.focus();
+      if (e.key === "Escape") {
+        closeDetail();
+        return;
       }
-      if ((e.key === "ArrowDown" || e.key === "ArrowUp") && state.selectedSlug && state.filtered.length) {
-        const idx = state.filtered.findIndex((r) => r.slug === state.selectedSlug);
-        if (idx !== -1) {
-          const next = state.filtered[idx + (e.key === "ArrowDown" ? 1 : -1)];
-          if (next) { e.preventDefault(); openDetail(next.slug); }
+      if (e.key === "/" && !/input|textarea|select/i.test(document.activeElement?.tagName || "")) {
+        if (searchEl) {
+          e.preventDefault();
+          searchEl.focus();
         }
+        return;
+      }
+      if ((e.key === "ArrowDown" || e.key === "ArrowUp") && state.filtered.length && !/input|textarea|select/i.test(document.activeElement?.tagName || "")) {
+        e.preventDefault();
+        const idx = state.filtered.findIndex((r) => r.slug === state.selectedSlug);
+        const next = e.key === "ArrowDown" ? Math.min(state.filtered.length - 1, idx + 1) : Math.max(0, idx - 1);
+        selectBySlug(state.filtered[next].slug, true);
       }
     });
   }
 
-  function init() {
-    const payload = loadPayload();
-    state.rows = payload.rows;
-    state.meta = payload.meta;
-
-    els.tbody = q(["#board-body", "#radar-body", "#protocol-tbody", "table tbody"]);
-    els.headers = qa(["#board-table thead th", "#radar-table thead th", "table thead th"]);
-    els.search = q(["#search-input", "#search", "input[type='search']", "[data-filter='search']"]);
-    els.category = q(["#category-filter", "#filter-category", "[data-filter='category']"]);
-    els.chain = q(["#chain-filter", "#filter-chain", "[data-filter='chain']"]);
-    els.tier = q(["#tier-filter", "#filter-tier", "select[data-filter='tier']"]);
-    els.difficulty = q(["#difficulty-filter", "#filter-difficulty", "[data-filter='difficulty']"]);
-    els.watchlist = q(["#watchlist-filter", "#watchlist-only", "#filter-watchlist", "[data-filter='watchlist']"]);
-    els.tierBtns = qa(["button[data-tier]", ".tier-btn[data-tier]", ".tier-pill[data-tier]"]);
-    els.sortSelect = q(["#sort-select", "#sort-by", "[data-filter='sort']"]);
-    els.resetBtn = q(["#reset-filters", "#clear-filters", "[data-action='reset']"]);
-    els.activeFilters = q(["#active-filters", ".active-filters"]);
-    els.emptyState = q(["#empty-state", ".empty-state"]);
-    els.detailPanel = q(["#detail-panel", "#detail-drawer", "#detail-modal", "#protocol-detail", ".detail-panel"]);
-    els.detailBody = q(["#detail-content", "#detail-body", ".detail-body", ".detail-content"]);
-    els.closeBtn = q(["#detail-close", "#close-detail", ".detail-close", "[data-action='close-detail']"]);
-    els.backdrop = q(["#detail-backdrop", "#modal-backdrop", ".modal-backdrop"]);
-
-    state.columns = els.headers.length
-      ? els.headers.map((th) => {
-          const col = resolveColumn(th);
-          if (col.sort) th.dataset.resolvedSort = col.sort;
-          return col;
-        })
-      : ["rank", "protocol", "category", "chains", "tvl", "growth", "impliedFdv", "airdrop", "score", "tier", "farm"].map((k) => ({ key: k, sort: k }));
-
-    const categories = Array.from(new Set(state.rows.map((r) => r.category))).sort();
-    const chains = Array.from(new Set(state.rows.flatMap((r) => r.chains))).sort();
-    const tiers = Array.from(new Set(state.rows.map((r) => r.tier)));
-    const diffs = Array.from(new Set(state.rows.map((r) => r.farm.difficulty))).sort();
-    populateSelect(els.category, categories, "All Categories");
-    populateSelect(els.chain, chains, "All Chains");
-    populateSelect(els.tier, tiers, "All Tiers");
-    populateSelect(els.difficulty, diffs, "All Efforts");
-
-    const initialSlug = readUrlParams();
-    syncControls();
+  async function init() {
+    const payload = await loadData();
+    state.raw = payload;
+    state.meta = payload.meta || {};
+    state.rows = payload.rows.map(normalizeRow);
+    readUrlParams();
+    populateFilterOptions();
     bindEvents();
-    applyFilters();
-    if (initialSlug) openDetail(initialSlug);
-
-    window.TokenRadarApp = {
-      openDetail,
-      closeDetail,
-      resetFilters,
-      setFilters(patch) {
-        Object.assign(state.filters, patch || {});
-        syncControls();
-        applyFilters();
-      },
-      getState: () => ({ filters: { ...state.filters }, sort: { ...state.sort }, total: state.rows.length, shown: state.filtered.length, selectedSlug: state.selectedSlug }),
-    };
+    applyFiltersAndSort();
+    if (state.selectedSlug) selectBySlug(state.selectedSlug, true);
+    document.dispatchEvent(new CustomEvent("radar:ready", { detail: { count: state.rows.length, meta: state.meta } }));
   }
 
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
-  else init();
-})();
+  global.RadarApp = {
+    getState: () => ({ ...state, filters: { ...state.filters }, sort: { ...state.sort } }),
+    getAllRows: () => state.rows.slice(),
+    getFilteredRows: () => state.filtered.slice(),
+    setFilter: (patch) => {
+      Object.assign(state.filters, patch);
+      syncFilterControls();
+      applyFiltersAndSort();
+    },
+    setSort: (key, dir = "desc") => {
+      state.sort = { key, dir };
+      syncFilterControls();
+      applyFiltersAndSort();
+    },
+    resetFilters,
+    selectBySlug,
+    closeDetail,
+    exportCsv,
+    formatUsd: fmtUsd,
+    formatPct: fmtPct,
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+})(window);

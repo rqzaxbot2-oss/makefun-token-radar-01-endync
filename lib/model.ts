@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
-import * as filterMod from "./filter.ts";
+import { existsSync, readFileSync } from "node:fs";
+import * as filtersMod from "./filters.ts";
 import * as valuationMod from "./valuation.ts";
 import * as farmingMod from "./farming.ts";
 
@@ -8,67 +8,62 @@ export interface RawProtocol {
   slug: string;
   name: string;
   symbol: string;
-  category: string;
-  chains: string[];
-  chainTvls: Record<string, number>;
-  tvl: number;
-  change1d: number;
-  change7d: number;
-  change1m: number;
-  mcap: number;
-  fdv: number;
+  address: string;
   geckoId: string;
   cmcId: string;
-  address: string;
+  category: string;
+  chain: string;
+  chains: string[];
+  tvl: number;
+  mcap: number;
+  fdv: number;
+  change1d: number | null;
+  change7d: number | null;
+  fees24h: number;
+  fees30d: number;
+  revenue30d: number;
+  volume24h: number;
+  totalRaised: number;
   parentProtocol: string;
   url: string;
   twitter: string;
   description: string;
   audits: number;
-  raisesUsd: number;
-  fees24h: number;
-  fees30d: number;
-  revenue24h: number;
-  revenue30d: number;
-  volume24h: number;
-  volume30d: number;
   listedAt: number;
+  raw: Record<string, unknown>;
 }
 
 export interface ParsedSnapshot {
   asOf: string;
   protocols: RawProtocol[];
   watchlist: string[];
-  parentTokenized: string[];
-  sourceMeta: Record<string, unknown>;
+  meta: Record<string, unknown>;
+}
+
+export interface PeerComp {
+  slug: string;
+  name: string;
+  tvl: number;
+  mcap: number;
+  multiple: number;
 }
 
 export interface FarmStep {
   step: number;
+  title: string;
   action: string;
   detail: string;
   chain: string;
-  risk: string;
 }
 
 export interface FarmPlan {
-  strategy: string;
+  summary: string;
   difficulty: "Low" | "Medium" | "High";
   capitalTier: string;
   riskLevel: "Low" | "Medium" | "High";
-  timeHorizon: string;
-  primaryChain: string;
+  estimatedEffort: string;
+  sybilNotes: string;
   steps: FarmStep[];
-  risks: string[];
-  catalysts: string[];
-}
-
-export interface CategoryBenchmark {
-  category: string;
-  peerCount: number;
-  medianFdvToTvl: number;
-  medianMcapToTvl: number;
-  medianFdvToFees: number;
 }
 
 export interface RadarRow {
@@ -77,115 +72,107 @@ export interface RadarRow {
   slug: string;
   name: string;
   category: string;
+  chain: string;
   chains: string[];
-  primaryChain: string;
   tvl: number;
-  change1d: number;
-  change7d: number;
-  change1m: number;
+  change1d: number | null;
+  change7d: number | null;
+  fees24h: number;
   fees30d: number;
   revenue30d: number;
-  volume30d: number;
-  raisesUsd: number;
+  volume24h: number;
+  totalRaised: number;
   url: string;
   twitter: string;
   description: string;
-  watchlist: boolean;
-  tokenStatus: string;
+  watchlisted: boolean;
   impliedValue: number;
   impliedFdv: number;
-  impliedFdvLow: number;
-  impliedFdvHigh: number;
+  impliedMcap: number;
+  lowFdv: number;
+  highFdv: number;
   airdropPoolUsd: number;
-  valuationMultiple: number;
-  valuationBasis: string;
+  peerMultiple: number;
+  peerCount: number;
+  confidence: "High" | "Medium" | "Low";
   score: number;
-  confidence: number;
   tier: "S" | "A" | "B" | "C";
+  valuationMethod: string;
+  signals: string[];
+  comps: PeerComp[];
   farmPlan: FarmPlan;
 }
 
-export interface GroupStat {
-  name: string;
-  count: number;
-  totalImpliedValue: number;
-  totalTvl: number;
-}
-
-export interface WatchlistReport {
-  total: number;
-  covered: number;
-  missing: string[];
-  slugs: string[];
-}
-
-export interface RadarSummary {
-  totalImpliedValue: number;
-  medianImpliedValue: number;
-  totalTvl: number;
-  totalAirdropPool: number;
-  topCategory: string;
-  topChain: string;
-}
-
-export interface RadarDataset {
-  schemaVersion: string;
+export interface RadarResult {
   asOf: string;
-  totalProtocols: number;
-  tokenizedCount: number;
-  excludedCount: number;
-  candidateCount: number;
-  watchlist: WatchlistReport;
-  summary: RadarSummary;
-  categories: GroupStat[];
-  chains: GroupStat[];
-  benchmarks: CategoryBenchmark[];
   rows: RadarRow[];
-}
-
-export interface BoardIssue {
-  schemaVersion: string;
-  issueId: string;
-  issuedAt: string;
-  asOf: string;
-  title: string;
-  counts: {
-    snapshotProtocols: number;
-    tokenizedExcluded: number;
-    wrapperOrOtherExcluded: number;
-    rankedRows: number;
+  summary: {
+    totalProtocols: number;
+    excludedWithToken: number;
+    excludedDerivative: number;
+    candidateCount: number;
+    rowCount: number;
     watchlistTotal: number;
     watchlistCovered: number;
+    totalImpliedFdv: number;
+    medianImpliedFdv: number;
+    categoriesCount: number;
+    chainsCount: number;
   };
-  watchlist: WatchlistReport;
-  summary: RadarSummary;
-  categories: GroupStat[];
-  chains: GroupStat[];
-  benchmarks: CategoryBenchmark[];
-  rows: RadarRow[];
+  watchlist: { total: number; covered: number; missing: string[]; slugs: string[] };
+  categories: Array<{ category: string; count: number; totalTvl: number; totalImpliedFdv: number; medianMultiple: number }>;
+  chains: Array<{ chain: string; count: number; totalTvl: number }>;
+  exclusions: Array<{ slug: string; name: string; reason: string; tvl: number }>;
 }
 
-export interface BuildOptions {
-  watchlist?: string[];
-  minRows?: number;
-  maxRows?: number;
-  asOf?: string;
+export interface BoardIssue extends RadarResult {
+  schema: string;
+  title: string;
+  generatedAt: string;
 }
 
-type Rec = Record<string, unknown>;
-
-const EMPTY_TOKEN = new Set(["", "-", "none", "null", "n/a", "na", "tbd", "undefined", "0"]);
-const NON_CHAIN = new Set(["staking", "borrowed", "pool2", "vesting", "treasury", "offers", "doublecounted"]);
-const WRAPPER_RE = /\b(wrapped|staked|bridged|canonical)\b|^(w|st|wst|cb|r|s|m|e)(btc|eth|sol|avax|matic|bnb|usdc|usdt|usde|dai|sui|ton|atom|tia|near|arb|op)\b|\b(wbtc|weth|steth|wsteth|cbbtc|cbeth|reth|sfrxeth|meth|wbeth|bsol|msol|jitosol|susde|sdai|susds)\b/i;
-
-const cmpStr = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
-const num = (v: unknown): number => {
-  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
-  return Number.isFinite(n) ? n : 0;
+const DEFAULT_AS_OF = "2025-01-01T00:00:00.000Z";
+const EMPTY_TOKENS = new Set(["", "-", "--", "none", "null", "n/a", "na", "tbd", "tba", "unknown"]);
+const EXCLUDED_CATS = new Set(["cex", "chain", "bridged tokens", "bridge assets", "wrapped tokens", "canonical bridge"]);
+const WRAP_RE = /^(wrapped|staked|liquid staked|bridged)\s+[a-z0-9]{2,8}$/i;
+const WRAP_SYM_RE = /\b(wbtc|weth|steth|wsteth|cbeth|reth|msol|jitosol|wbnb|wavax|stmatic|stsol)\b/i;
+const CAT_MULT: Record<string, number> = {
+  derivatives: 0.85, perps: 0.85, dexs: 0.55, dex: 0.55, lending: 0.38, bridge: 0.7,
+  "cross chain": 0.7, yield: 0.32, "yield aggregator": 0.32, restaking: 0.28,
+  "liquid staking": 0.28, "liquid restaking": 0.3, rwa: 0.35, cdp: 0.25,
+  launchpad: 0.65, options: 0.75, "prediction market": 1.1, payments: 0.75,
 };
-const str = (v: unknown): string => (typeof v === "string" ? v.trim() : typeof v === "number" && Number.isFinite(v) ? String(v) : "");
-const slugify = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
+
+function cmpStr(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+function slugify(v: string): string {
+  return v.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+function asRec(v: unknown): Record<string, unknown> {
+  return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+}
+
+function str(v: unknown): string {
+  return typeof v === "string" ? v.trim() : typeof v === "number" && Number.isFinite(v) ? String(v) : "";
+}
+
+function num(v: unknown): number {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v.replace(/[$,]/g, ""));
+    return Number.isFinite(n) ? n : 0;
+  }
+  return 0;
+}
+
+function optNum(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = num(v);
+  return Number.isFinite(n) ? n : null;
+}
 
 function median(vals: number[]): number {
   if (!vals.length) return 0;
@@ -194,526 +181,386 @@ function median(vals: number[]): number {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
-function parseIso(v: unknown): string {
-  if (typeof v === "number" && Number.isFinite(v)) {
-    const ms = v > 1e11 ? v : v * 1000;
-    return new Date(ms).toISOString();
-  }
-  const s = str(v);
-  if (s && !Number.isNaN(Date.parse(s))) return new Date(Date.parse(s)).toISOString();
-  return "2025-01-01T00:00:00.000Z";
-}
-
-function tryModCall<T>(mod: unknown, names: string[], args: unknown[], check: (v: unknown) => v is T): T | null {
-  const obj = mod as Rec;
+function pickFn(mod: Record<string, unknown>, names: string[]): ((...args: unknown[]) => unknown) | null {
   for (const name of names) {
-    const fn = obj?.[name];
-    if (typeof fn !== "function") continue;
-    try {
-      const out = (fn as (...a: unknown[]) => unknown)(...args);
-      if (check(out)) return out;
-    } catch {
-      // Fallback to built-in deterministic logic when sibling module signature differs.
-    }
+    const candidate = mod[name];
+    if (typeof candidate === "function") return candidate as (...args: unknown[]) => unknown;
   }
   return null;
 }
 
-function hasLiveToken(p: RawProtocol): boolean {
-  if (p.mcap > 0 || p.fdv > 0) return true;
-  if (!EMPTY_TOKEN.has(p.geckoId.toLowerCase())) return true;
-  if (!EMPTY_TOKEN.has(p.cmcId.toLowerCase())) return true;
-  if (!EMPTY_TOKEN.has(p.address.toLowerCase())) return true;
-  const sym = p.symbol.toLowerCase();
-  return !EMPTY_TOKEN.has(sym) && sym.length <= 14;
-}
-
-function isWrappedOrExcluded(p: RawProtocol, parentTokenized: Set<string>): boolean {
-  if (p.parentProtocol && parentTokenized.has(p.parentProtocol)) return true;
-  const cat = p.category.toLowerCase();
-  if (cat === "cex" || cat === "chain" || cat === "canonical bridge") return true;
-  if (WRAPPER_RE.test(p.name) || WRAPPER_RE.test(p.slug)) return true;
-  if (/wrapped version of|1:1 backed by|liquid staking token for/i.test(p.description)) return true;
-  return p.tvl <= 0 && p.fees30d <= 0 && p.volume30d <= 0 && p.raisesUsd <= 0;
-}
-
-function normalizeProtocol(item: Rec, idx: number, aux: Map<string, Rec>): RawProtocol {
-  const name = str(item.name) || str(item.slug) || `Protocol ${idx + 1}`;
-  const slug = slugify(str(item.slug) || name) || `protocol-${idx + 1}`;
-  const extra = aux.get(slug) || aux.get(name.toLowerCase()) || {};
-  const chainTvls: Record<string, number> = {};
-  const rawCt = (item.chainTvls && typeof item.chainTvls === "object" ? item.chainTvls : {}) as Rec;
-  for (const [k, v] of Object.entries(rawCt)) {
-    const low = k.toLowerCase();
-    if (NON_CHAIN.has(low) || low.includes("-")) continue;
-    const val = num(v);
-    if (val > 0) chainTvls[k] = val;
-  }
-  const chainSet = new Set<string>();
-  if (Array.isArray(item.chains)) {
-    for (const c of item.chains) {
-      const cs = str(c);
-      if (cs && !NON_CHAIN.has(cs.toLowerCase())) chainSet.add(cs);
+function indexAux(src: unknown): Map<string, Record<string, unknown>> {
+  const out = new Map<string, Record<string, unknown>>();
+  if (Array.isArray(src)) {
+    for (const item of src) {
+      const r = asRec(item);
+      const k = slugify(str(r.slug) || str(r.name) || str(r.protocol) || str(r.id));
+      if (k) out.set(k, r);
+    }
+  } else if (src && typeof src === "object") {
+    for (const [k, v] of Object.entries(src as Record<string, unknown>)) {
+      const r = asRec(v);
+      const key = slugify(k);
+      if (key) out.set(key, Object.keys(r).length ? r : { value: num(v) });
     }
   }
-  for (const c of Object.keys(chainTvls)) chainSet.add(c);
-  if (!chainSet.size && str(item.chain)) chainSet.add(str(item.chain));
-  const chains = [...chainSet].sort(cmpStr);
-  const tvl = Math.max(0, num(item.tvl ?? item.tvlUsd ?? Object.values(chainTvls).reduce((a, b) => a + b, 0)));
-  const fees24h = Math.max(0, num(item.fees24h ?? extra.fees24h ?? extra.total24h));
-  const fees30d = Math.max(0, num(item.fees30d ?? extra.fees30d ?? extra.total30d ?? fees24h * 30));
-  const revenue24h = Math.max(0, num(item.revenue24h ?? extra.revenue24h));
-  const revenue30d = Math.max(0, num(item.revenue30d ?? extra.revenue30d ?? revenue24h * 30));
-  const volume24h = Math.max(0, num(item.volume24h ?? extra.volume24h));
-  const volume30d = Math.max(0, num(item.volume30d ?? extra.volume30d ?? volume24h * 30));
-  const raisesRaw = Array.isArray(item.raises)
-    ? item.raises.reduce((s, r) => s + num((r as Rec)?.amount) * 1e6, 0)
-    : num(item.raisesUsd ?? item.totalRaised ?? extra.raisesUsd);
-  return {
-    id: str(item.id) || slug,
-    slug,
-    name,
-    symbol: str(item.symbol),
-    category: str(item.category) || "DeFi",
-    chains,
-    chainTvls,
-    tvl,
-    change1d: num(item.change_1d ?? item.change1d),
-    change7d: num(item.change_7d ?? item.change7d),
-    change1m: num(item.change_1m ?? item.change1m),
-    mcap: Math.max(0, num(item.mcap ?? item.marketCap)),
-    fdv: Math.max(0, num(item.fdv ?? item.fdvUsd)),
-    geckoId: str(item.gecko_id ?? item.geckoId),
-    cmcId: str(item.cmcId ?? item.cmc_id),
-    address: str(item.address),
-    parentProtocol: str(item.parentProtocol ?? item.parentProtocolSlug),
-    url: str(item.url),
-    twitter: str(item.twitter),
-    description: str(item.description),
-    audits: Math.max(0, Math.round(num(item.audits))),
-    raisesUsd: Math.max(0, raisesRaw),
-    fees24h,
-    fees30d,
-    revenue24h,
-    revenue30d,
-    volume24h,
-    volume30d,
-    listedAt: Math.max(0, Math.round(num(item.listedAt))),
-  };
+  return out;
 }
 
-export function parseSnapshot(input: string | Buffer | Rec | unknown[]): ParsedSnapshot {
+export function parseSnapshot(input: unknown): ParsedSnapshot {
   let raw: unknown = input;
-  if (Buffer.isBuffer(raw)) raw = raw.toString("utf8");
+  if (raw instanceof Uint8Array) raw = Buffer.from(raw).toString("utf8");
   if (typeof raw === "string") {
-    const trimmed = raw.trim();
-    raw = trimmed.startsWith("{") || trimmed.startsWith("[")
-      ? JSON.parse(trimmed)
-      : JSON.parse(readFileSync(trimmed, "utf8"));
+    const t = raw.trim();
+    const text = !t.startsWith("{") && !t.startsWith("[") && existsSync(t) ? readFileSync(t, "utf8") : t;
+    raw = JSON.parse(text);
   }
-  const obj = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Rec;
-  const list = Array.isArray(raw)
-    ? raw
-    : (Array.isArray(obj.protocols) ? obj.protocols : Array.isArray(obj.rows) ? obj.rows : Array.isArray(obj.data) ? obj.data : Array.isArray(obj.items) ? obj.items : []);
-  const aux = new Map<string, Rec>();
-  for (const key of ["fees", "revenues", "volumes", "raises"]) {
-    const arr = obj[key];
-    if (!Array.isArray(arr)) continue;
-    for (const entry of arr) {
-      if (!entry || typeof entry !== "object") continue;
-      const e = entry as Rec;
-      const k = slugify(str(e.slug || e.name || e.protocol));
-      if (k) aux.set(k, { ...(aux.get(k) || {}), ...e });
-    }
-  }
-  const protocols = list
-    .filter((x): x is Rec => Boolean(x && typeof x === "object"))
-    .map((x, i) => normalizeProtocol(x, i, aux))
-    .sort((a, b) => cmpStr(a.slug, b.slug) || cmpStr(a.id, b.id));
-  const parentSet = new Set<string>();
-  for (const p of protocols) {
-    if (p.parentProtocol && hasLiveToken(p)) parentSet.add(p.parentProtocol);
-  }
-  const rawWatch = obj.watchlist ?? obj.watchList ?? obj.watch_list ?? obj.tracked ?? obj.targets;
+  const root = Array.isArray(raw) ? { protocols: raw } : asRec(raw);
+  const meta = asRec(root.meta);
+  const asOf = str(root.asOf || root.snapshotDate || root.generatedAt || root.capturedAt || meta.asOf || meta.generatedAt) || DEFAULT_AS_OF;
+  const list = Array.isArray(root.protocols) ? root.protocols : Array.isArray(root.data) ? root.data : Array.isArray(root.items) ? root.items : [];
+  const feeMap = indexAux(root.fees);
+  const revMap = indexAux(root.revenue);
+  const volMap = indexAux(root.volumes || root.dexs);
+  const raiseMap = indexAux(root.raises);
+
+  const rawWatch = Array.isArray(root.watchlist) ? root.watchlist : Array.isArray(meta.watchlist) ? meta.watchlist : [];
   const watchSet = new Set<string>();
-  if (Array.isArray(rawWatch)) {
-    for (const w of rawWatch) {
-      const k = slugify(typeof w === "string" ? w : str((w as Rec)?.slug ?? (w as Rec)?.name));
-      if (k) watchSet.add(k);
-    }
+  for (const w of rawWatch) {
+    const s = typeof w === "string" ? slugify(w) : slugify(str(asRec(w).slug) || str(asRec(w).name) || str(asRec(w).id));
+    if (s) watchSet.add(s);
   }
-  const asOf = parseIso(obj.asOf ?? obj.snapshotAt ?? obj.snapshot_at ?? obj.timestamp ?? obj.generatedAt ?? obj.date);
-  return {
-    asOf,
-    protocols,
-    watchlist: [...watchSet].sort(cmpStr),
-    parentTokenized: [...parentSet].sort(cmpStr),
-    sourceMeta: {
-      source: str(obj.source) || "defillama-snapshot",
-      version: str(obj.version) || "1",
-    },
-  };
+
+  const protocols: RawProtocol[] = [];
+  for (let i = 0; i < list.length; i++) {
+    const r = asRec(list[i]);
+    const name = str(r.name) || str(r.slug);
+    const slug = slugify(str(r.slug) || name || `protocol-${i}`);
+    if (!name && !slug) continue;
+    const rawChains = Array.isArray(r.chains) ? r.chains.map(str).filter(Boolean) : [];
+    const primaryChain = str(r.chain) || rawChains[0] || "Multi-Chain";
+    const chains = Array.from(new Set(rawChains.length ? rawChains : [primaryChain])).sort(cmpStr);
+    const fRec = feeMap.get(slug) || {};
+    const rRec = revMap.get(slug) || {};
+    const vRec = volMap.get(slug) || {};
+    const zRec = raiseMap.get(slug) || {};
+    const raisedRaw = num(r.totalRaised || r.raised || zRec.totalRaised || zRec.amount || zRec.value);
+    const totalRaised = raisedRaw > 0 && raisedRaw < 10_000 ? raisedRaw * 1_000_000 : raisedRaw;
+    protocols.push({
+      id: str(r.id) || slug,
+      slug,
+      name: name || slug,
+      symbol: str(r.symbol),
+      address: str(r.address),
+      geckoId: str(r.gecko_id || r.geckoId),
+      cmcId: str(r.cmcId || r.cmc_id),
+      category: str(r.category) || "DeFi",
+      chain: primaryChain,
+      chains,
+      tvl: Math.max(0, num(r.tvl)),
+      mcap: Math.max(0, num(r.mcap)),
+      fdv: Math.max(0, num(r.fdv)),
+      change1d: optNum(r.change_1d ?? r.change1d),
+      change7d: optNum(r.change_7d ?? r.change7d),
+      fees24h: Math.max(0, num(r.fees24h ?? r.dailyFees ?? fRec.total24h ?? fRec.fees24h)),
+      fees30d: Math.max(0, num(r.fees30d ?? fRec.total30d ?? fRec.fees30d ?? fRec.value)),
+      revenue30d: Math.max(0, num(r.revenue30d ?? rRec.total30d ?? rRec.revenue30d ?? rRec.value)),
+      volume24h: Math.max(0, num(r.volume24h ?? vRec.total24h ?? vRec.volume24h ?? vRec.value)),
+      totalRaised: Math.max(0, totalRaised),
+      parentProtocol: str(r.parentProtocol || r.parentProtocolId),
+      url: str(r.url),
+      twitter: str(r.twitter),
+      description: str(r.description),
+      audits: Math.max(0, Math.round(num(r.audits) || (Array.isArray(r.audit_links) ? r.audit_links.length : 0))),
+      listedAt: Math.max(0, Math.round(num(r.listedAt))),
+      raw: r,
+    });
+  }
+  return { asOf, protocols, watchlist: Array.from(watchSet).sort(cmpStr), meta };
 }
 
-function buildBenchmarks(protocols: RawProtocol[]): { list: CategoryBenchmark[]; byCat: Map<string, CategoryBenchmark>; globalFdvToTvl: number } {
-  const byCatRaw = new Map<string, { fdvTvl: number[]; mcapTvl: number[]; fdvFees: number[] }>();
-  const allFdvTvl: number[] = [];
-  for (const p of protocols) {
-    if (!hasLiveToken(p) || p.tvl <= 100_000) continue;
-    const fdv = p.fdv > 0 ? p.fdv : p.mcap > 0 ? p.mcap * 1.45 : 0;
-    if (fdv <= 0) continue;
-    const r = clamp(fdv / p.tvl, 0.08, 12);
-    allFdvTvl.push(r);
-    const bucket = byCatRaw.get(p.category) || { fdvTvl: [], mcapTvl: [], fdvFees: [] };
-    bucket.fdvTvl.push(r);
-    if (p.mcap > 0) bucket.mcapTvl.push(clamp(p.mcap / p.tvl, 0.05, 8));
-    if (p.fees30d > 5_000) bucket.fdvFees.push(clamp(fdv / (p.fees30d * 12), 2, 60));
-    byCatRaw.set(p.category, bucket);
-  }
-  const globalFdvToTvl = allFdvTvl.length ? Number(median(allFdvTvl).toFixed(3)) : 0.78;
-  const list: CategoryBenchmark[] = [];
-  const byCat = new Map<string, CategoryBenchmark>();
-  for (const [category, b] of [...byCatRaw.entries()].sort((a, b) => cmpStr(a[0], b[0]))) {
-    const bm: CategoryBenchmark = {
-      category,
-      peerCount: b.fdvTvl.length,
-      medianFdvToTvl: Number(median(b.fdvTvl).toFixed(3)),
-      medianMcapToTvl: Number((b.mcapTvl.length ? median(b.mcapTvl) : median(b.fdvTvl) * 0.68).toFixed(3)),
-      medianFdvToFees: Number((b.fdvFees.length ? median(b.fdvFees) : 14).toFixed(2)),
-    };
-    list.push(bm);
-    byCat.set(category, bm);
-  }
-  return { list, byCat, globalFdvToTvl };
+function hasLiveToken(p: RawProtocol): boolean {
+  if (!EMPTY_TOKENS.has(p.geckoId.toLowerCase())) return true;
+  if (!EMPTY_TOKENS.has(p.cmcId.toLowerCase())) return true;
+  if (p.mcap > 0 || p.fdv > 0) return true;
+  if (!EMPTY_TOKENS.has(p.address.toLowerCase())) return true;
+  if (!EMPTY_TOKENS.has(p.symbol.toLowerCase())) return true;
+  return false;
 }
 
-function estimateRowValuation(
-  p: RawProtocol,
-  bm: CategoryBenchmark | undefined,
-  globalMult: number,
-  isWatch: boolean
-): { impliedFdv: number; low: number; high: number; airdrop: number; mult: number; basis: string; score: number; confidence: number } {
-  const peerW = bm ? clamp(bm.peerCount / 6, 0, 1) : 0;
-  const baseMult = bm ? bm.medianFdvToTvl * peerW + globalMult * (1 - peerW) : globalMult;
-  const scaleAdj = p.tvl > 2e9 ? 0.78 : p.tvl > 5e8 ? 0.9 : 1;
-  const effMult = Number((baseMult * scaleAdj).toFixed(3));
-  const signals: Array<{ v: number; w: number; label: string }> = [];
-  if (p.tvl > 0) signals.push({ v: p.tvl * effMult, w: 0.55, label: `TVL ${effMult}x` });
-  if (p.revenue30d > 0) signals.push({ v: p.revenue30d * 12 * 18, w: 0.25, label: "Rev 18x" });
-  else if (p.fees30d > 0) signals.push({ v: p.fees30d * 12 * (bm?.medianFdvToFees ?? 12), w: 0.2, label: "Fees" });
-  if (p.volume30d > 0) signals.push({ v: p.volume30d * 12 * 0.035, w: 0.15, label: "Vol" });
-  if (p.raisesUsd > 0) signals.push({ v: p.raisesUsd * 6.5, w: 0.15, label: "Raises 6.5x" });
-
-  let rawFdv = 18_000_000;
-  if (signals.length) {
-    const wSum = signals.reduce((s, x) => s + x.w, 0);
-    rawFdv = signals.reduce((s, x) => s + x.v * (x.w / wSum), 0);
+function classifyExclusion(p: RawProtocol, tokenedParents: Set<string>): string | null {
+  const extFilter = pickFn(filtersMod as Record<string, unknown>, ["classifyProtocol", "evaluateProtocol", "checkEligibility"]);
+  if (extFilter) {
+    try {
+      const res = asRec(extFilter(p.raw, p));
+      if (typeof res.eligible === "boolean") return res.eligible ? null : str(res.reason) || "Excluded by filter";
+    } catch { /* fallback below */ }
   }
-  const mom = clamp((p.change7d * 0.6 + p.change1m * 0.4) / 250, -0.18, 0.22);
-  const chainBoost = 1 + Math.min(Math.max(p.chains.length - 1, 0), 6) * 0.03;
-  const impliedFdv = Math.round(clamp(rawFdv * (1 + mom) * chainBoost, 5_000_000, 25_000_000_000));
-  const catLow = p.category.toLowerCase();
-  const airdropPct = /perp|deriv|dex|bridge|layer|rollup/.test(catLow) ? 0.1 : /lend|restak|staking|yield/.test(catLow) ? 0.08 : 0.075;
-  const confidence = Math.round(
-    clamp(40 + (p.tvl > 1e7 ? 18 : p.tvl > 1e6 ? 10 : 4) + (p.fees30d > 0 ? 12 : 0) + (p.raisesUsd > 0 ? 10 : 0) + (bm && bm.peerCount >= 3 ? 10 : 4) + (isWatch ? 5 : 0), 35, 95)
-  );
-  const valScore = clamp((Math.log10(Math.max(impliedFdv, 1e6)) - 6) * 21, 10, 82);
-  const score = Math.round(clamp(valScore + clamp(mom * 40, -6, 8) + (confidence - 50) * 0.22, 1, 99));
-  return {
-    impliedFdv,
-    low: Math.round(impliedFdv * 0.65),
-    high: Math.round(impliedFdv * 1.45),
-    airdrop: Math.round(impliedFdv * airdropPct),
-    mult: effMult,
-    basis: signals.length ? signals.map((s) => s.label).join(" + ") : "Category Floor",
-    score,
-    confidence,
-  };
+  if (hasLiveToken(p)) return "tokened";
+  if (p.parentProtocol && tokenedParents.has(slugify(p.parentProtocol.replace(/^parent#/, "")))) return "parent-tokened";
+  if (EXCLUDED_CATS.has(p.category.toLowerCase())) return `category:${p.category}`;
+  if (WRAP_RE.test(p.name) || (WRAP_SYM_RE.test(p.name) && p.chains.length <= 2)) return "wrapped-or-staked";
+  const desc = p.description.toLowerCase();
+  if (desc.includes("wrapped version of") || desc.includes("bridged representation of")) return "wrapped-or-staked";
+  return null;
 }
 
-function defaultFarmPlan(p: RawProtocol, impliedFdv: number): FarmPlan {
-  const primaryChain = p.chains[0] || "Ethereum";
+function defaultFarmPlan(p: RawProtocol): FarmPlan {
+  const extFarm = pickFn(farmingMod as Record<string, unknown>, ["buildFarmPlan", "generateFarmPlan", "createFarmPlan", "getFarmPlan"]);
+  if (extFarm) {
+    try {
+      const out = asRec(extFarm(p.raw, p));
+      if (Array.isArray(out.steps) && out.steps.length >= 2) {
+        const steps: FarmStep[] = out.steps.slice(0, 6).map((s, idx) => {
+          const r = asRec(s);
+          return {
+            step: idx + 1,
+            title: str(r.title) || `Step ${idx + 1}`,
+            action: str(r.action || r.summary || r.title) || `Interact with ${p.name}`,
+            detail: str(r.detail || r.description || r.action) || `Execute verified activity on ${p.chain}.`,
+            chain: str(r.chain) || p.chain,
+          };
+        });
+        const diff = str(out.difficulty);
+        const risk = str(out.riskLevel || out.risk);
+        return {
+          summary: str(out.summary || out.strategy) || `Build recurring organic activity on ${p.name} (${p.chain}).`,
+          difficulty: diff === "Low" || diff === "High" ? diff : "Medium",
+          capitalTier: str(out.capitalTier || out.capital) || (p.tvl > 100_000_000 ? "$500+" : "$200+"),
+          riskLevel: risk === "Low" || risk === "High" ? risk : "Medium",
+          estimatedEffort: str(out.estimatedEffort || out.effort) || "15 min setup + weekly activity",
+          sybilNotes: str(out.sybilNotes || out.sybil) || "Keep natural sizing, multi-week cadence, and avoid circular transfers.",
+          steps,
+        };
+      }
+    } catch { /* fallback below */ }
+  }
   const cat = p.category.toLowerCase();
-  const isPerp = /perp|deriv|option|future/.test(cat);
-  const isDex = /dex|amm|swap|exchange/.test(cat);
-  const isLend = /lend|cdp|borrow|money market/.test(cat);
-  const isStake = /stak|restak/.test(cat);
-  const isBridge = /bridge|cross|interop/.test(cat);
-
-  const strategy = isPerp
-    ? "Recurring Perps Volume & Vault LP"
-    : isDex
-      ? "Concentrated LP & Multi-Pair Swap Activity"
-      : isLend
-        ? "Collateral Supply & Low-LTV Borrow Loop"
-        : isStake
-          ? "Liquid Restaking Deposit & DeFi Integration"
-          : isBridge
-            ? "Cross-Chain Route Cadence & Gas Refuel"
-            : "Core Vault Deposit & Weekly Active Usage";
-
-  const difficulty: FarmPlan["difficulty"] = isPerp || isDex ? "Medium" : isBridge ? "Low" : "Low";
-  const riskLevel: FarmPlan["riskLevel"] = isPerp || isLend ? "Medium" : "Low";
-  const capitalTier = impliedFdv >= 500_000_000 ? "$1,000 - $10,000+" : impliedFdv >= 100_000_000 ? "$250 - $2,500" : "$100 - $1,000";
-
-  const action2 = isPerp
-    ? `Execute weekly hedged perp trades on ${p.name} across top pairs`
-    : isDex
-      ? `Provide liquid pair LP on ${p.name} and route organic weekly swaps`
-      : isLend
-        ? `Supply blue-chip collateral on ${p.name} and maintain a safe (<40% LTV) borrow`
-        : isStake
-          ? `Mint and hold ${p.name}'s receipt token, then deploy in a partnered LP or lending pool`
-          : isBridge
-            ? `Bridge native assets across ${p.chains.slice(0, 3).join(", ") || primaryChain} over separate weeks`
-            : `Deposit core assets into ${p.name}'s flagship vault on ${primaryChain}`;
-
+  const isPerps = cat.includes("deriv") || cat.includes("perp") || cat.includes("option");
+  const isDex = cat.includes("dex");
+  const isLend = cat.includes("lend") || cat.includes("cdp");
+  const isBridge = cat.includes("bridge") || cat.includes("cross");
+  const isStake = cat.includes("stak") || cat.includes("yield") || cat.includes("rwa");
+  const verb = isPerps ? "Trade perpetual volume & provide vault liquidity" : isDex ? "Route swaps & provide active LP ranges" : isLend ? "Supply collateral & maintain healthy borrow usage" : isBridge ? "Bridge assets across multiple supported routes" : isStake ? "Deposit core assets into points-accruing vaults" : "Generate recurring on-chain usage across core features";
+  const site = p.url || `official ${p.name} app`;
   return {
-    strategy,
-    difficulty,
-    capitalTier,
-    riskLevel,
-    timeHorizon: "4 - 16 weeks (multi-epoch consistency)",
-    primaryChain,
+    summary: `${verb} on ${p.name} (${p.chain}) across distinct weeks to qualify for a retroactive token launch.`,
+    difficulty: isPerps || isLend ? "Medium" : "Low",
+    capitalTier: p.tvl > 250_000_000 ? "$1,000+" : p.tvl > 25_000_000 ? "$250+" : "$100+",
+    riskLevel: p.audits > 0 && p.tvl > 50_000_000 ? "Low" : "Medium",
+    estimatedEffort: "15 min initial setup + 10 min weekly",
+    sybilNotes: "Use an aged primary wallet, vary trade sizes, hold positions >7 days, and avoid dust-only transactions.",
     steps: [
-      { step: 1, action: `Fund wallet on ${primaryChain}`, detail: `Bridge gas + stable/blue-chip capital to ${primaryChain} and verify ${p.url || p.name} official domain.`, chain: primaryChain, risk: "Low" },
-      { step: 2, action: "Establish core position", detail: action2, chain: primaryChain, risk: riskLevel },
-      { step: 3, action: "Build weekly cadence", detail: `Interact across 6+ distinct weeks on ${p.name} to clear anti-Sybil longevity and volume filters.`, chain: primaryChain, risk: "Low" },
-      { step: 4, action: "Track points & snapshots", detail: `Monitor ${p.name} governance/points epochs, claim badges or quests, and avoid emptying balance before TGE snapshot.`, chain: primaryChain, risk: "Low" },
-    ],
-    risks: [
-      p.audits > 0 ? "Smart contract & oracle risk despite prior audits" : "Unaudited or limited public audit history",
-      isPerp || isDex ? "Impermanent loss, funding drift, and fee drag" : "Points dilution and extended lockup before TGE",
-    ],
-    catalysts: [
-      p.tvl >= 100_000_000 ? `$${Math.round(p.tvl / 1e6)}M TVL scale supports tier-1 exchange TGE` : "TVL growth toward tier-1 listing thresholds",
-      p.raisesUsd > 0 ? `$${Math.round(p.raisesUsd / 1e6)}M institutional backing aligns with token launch` : "Protocol fee switch & decentralization roadmap",
+      { step: 1, title: "Verify & Fund Wallet", action: `Connect to ${site} on ${p.chain}`, detail: `Confirm official domain and fund gas plus working capital on ${p.chain}.`, chain: p.chain },
+      { step: 2, title: "Core Protocol Position", action: verb, detail: `Deploy meaningful liquidity or volume on ${p.name} rather than a single minimal transaction.`, chain: p.chain },
+      { step: 3, title: "Multi-Week Cadence", action: "Repeat activity across 4+ distinct weeks", detail: "Spread swaps, deposits, or rebalances over separate weeks to clear snapshot consistency filters.", chain: p.chain },
+      { step: 4, title: "Track Points & Risk", action: "Monitor points dashboard and protocol health", detail: "Record wallet tier, check official announcements, and keep LTV or IL exposure within limits.", chain: p.chain },
     ],
   };
 }
 
-function summarizeGroups(rows: RadarRow[], pick: (r: RadarRow) => string[]): GroupStat[] {
-  const m = new Map<string, GroupStat>();
-  for (const r of rows) {
-    for (const name of pick(r)) {
-      const g = m.get(name) || { name, count: 0, totalImpliedValue: 0, totalTvl: 0 };
-      g.count += 1;
-      g.totalImpliedValue += r.impliedValue;
-      g.totalTvl += r.tvl;
-      m.set(name, g);
-    }
-  }
-  return [...m.values()].sort((a, b) => b.totalImpliedValue - a.totalImpliedValue || cmpStr(a.name, b.name));
-}
-
-export function buildRadar(input: ParsedSnapshot | string | Buffer | Rec | unknown[], options: BuildOptions = {}): RadarDataset {
-  const snap: ParsedSnapshot = input && typeof input === "object" && "protocols" in input && "asOf" in input
+export function buildRadar(input: ParsedSnapshot | unknown, options?: { limit?: number; minRows?: number }): RadarResult {
+  const snap = asRec(input).protocols && Array.isArray(asRec(input).protocols) && typeof asRec(input).asOf === "string"
     ? (input as ParsedSnapshot)
     : parseSnapshot(input);
-  const asOf = options.asOf ? parseIso(options.asOf) : snap.asOf;
-  const minRows = Math.max(1, options.minRows ?? 100);
-  const watchSet = new Set<string>(snap.watchlist);
-  for (const w of options.watchlist || []) {
-    const k = slugify(w);
-    if (k) watchSet.add(k);
-  }
-  const parentSet = new Set(snap.parentTokenized);
-  const isWatch = (p: RawProtocol): boolean => watchSet.has(p.slug) || watchSet.has(slugify(p.name)) || watchSet.has(slugify(p.id));
+  const limit = Math.max(100, options?.limit ?? 220);
+  const minRows = Math.max(100, options?.minRows ?? 100);
+  const watchSet = new Set(snap.watchlist);
 
-  let tokenizedCount = 0;
-  let excludedCount = 0;
-  const modFiltered = tryModCall<RawProtocol[]>(
-    filterMod,
-    ["filterProtocols", "filterCandidates", "selectCandidates", "screenProtocols"],
-    [snap.protocols, { watchlist: [...watchSet], parentTokenized: [...parentSet] }],
-    (v): v is RawProtocol[] => Array.isArray(v) && v.length > 0 && Boolean((v[0] as Rec)?.slug)
-  );
-
-  const candidates: RawProtocol[] = [];
-  const seen = new Set<string>();
-  const addCand = (p: RawProtocol): void => {
-    if (seen.has(p.slug)) return;
-    seen.add(p.slug);
-    candidates.push(p);
-  };
-
-  if (modFiltered) {
-    const kept = new Set(modFiltered.map((x) => slugify(str((x as unknown as Rec).slug || (x as unknown as Rec).name))));
-    for (const p of snap.protocols) {
-      if (hasLiveToken(p)) tokenizedCount += 1;
-      if (isWatch(p) || kept.has(p.slug)) addCand(p);
-      else if (!hasLiveToken(p)) excludedCount += 1;
-    }
-  } else {
-    for (const p of snap.protocols) {
-      const live = hasLiveToken(p);
-      if (live) tokenizedCount += 1;
-      if (isWatch(p)) {
-        addCand(p);
-      } else if (!live && !isWrappedOrExcluded(p, parentSet)) {
-        addCand(p);
-      } else if (!live) {
-        excludedCount += 1;
+  const tokenedParents = new Set<string>();
+  const compsByCat = new Map<string, PeerComp[]>();
+  const allComps: PeerComp[] = [];
+  for (const p of snap.protocols) {
+    if (hasLiveToken(p)) {
+      tokenedParents.add(p.slug);
+      tokenedParents.add(slugify(p.name));
+      if (p.parentProtocol) tokenedParents.add(slugify(p.parentProtocol.replace(/^parent#/, "")));
+      const val = p.fdv > 0 ? p.fdv : p.mcap;
+      if (val >= 100_000 && p.tvl >= 100_000) {
+        const mult = Math.min(8, Math.max(0.05, val / p.tvl));
+        const comp: PeerComp = { slug: p.slug, name: p.name, tvl: Math.round(p.tvl), mcap: Math.round(val), multiple: Number(mult.toFixed(3)) };
+        allComps.push(comp);
+        const key = p.category.toLowerCase();
+        const arr = compsByCat.get(key) || [];
+        arr.push(comp);
+        compsByCat.set(key, arr);
       }
     }
   }
+  const globalMult = allComps.length ? Math.min(1.5, Math.max(0.2, median(allComps.map((c) => c.multiple)))) : 0.4;
 
-  if (candidates.length < Math.min(minRows, snap.protocols.length)) {
-    const backfill = snap.protocols
-      .filter((p) => !seen.has(p.slug))
-      .sort((a, b) => Number(hasLiveToken(a)) - Number(hasLiveToken(b)) || b.tvl - a.tvl || cmpStr(a.slug, b.slug));
-    for (const p of backfill) {
-      if (candidates.length >= minRows) break;
-      addCand(p);
+  let excludedWithToken = 0;
+  let excludedDerivative = 0;
+  const exclusions: Array<{ slug: string; name: string; reason: string; tvl: number }> = [];
+  const candidates: Array<{ p: RawProtocol; watchlisted: boolean }> = [];
+
+  for (const p of snap.protocols) {
+    const watchlisted = watchSet.has(p.slug) || watchSet.has(slugify(p.name)) || watchSet.has(slugify(p.id));
+    const reason = classifyExclusion(p, tokenedParents);
+    if (reason && !watchlisted) {
+      if (reason === "tokened") excludedWithToken++;
+      else excludedDerivative++;
+      if (p.tvl >= 1_000_000) exclusions.push({ slug: p.slug, name: p.name, reason, tvl: Math.round(p.tvl) });
+      continue;
     }
+    candidates.push({ p, watchlisted });
   }
+  exclusions.sort((a, b) => b.tvl - a.tvl || cmpStr(a.slug, b.slug));
 
-  const { list: benchmarks, byCat, globalFdvToTvl } = buildBenchmarks(snap.protocols);
-  const rows: RadarRow[] = candidates.map((p) => {
-    const watch = isWatch(p);
-    const bm = byCat.get(p.category);
-    const est = estimateRowValuation(p, bm, globalFdvToTvl, watch);
-    const modVal = tryModCall<Rec>(
-      valuationMod,
-      ["valueProtocol", "estimateValuation", "scoreProtocol"],
-      [p, { benchmarks, globalFdvToTvl }],
-      (v): v is Rec => Boolean(v && typeof v === "object" && num((v as Rec).impliedFdv ?? (v as Rec).impliedValue ?? (v as Rec).fdv) > 0)
-    );
-    const impliedFdv = Math.round(num(modVal?.impliedFdv ?? modVal?.impliedValue ?? modVal?.fdv) || est.impliedFdv);
-    const modPlan = tryModCall<Rec>(
-      farmingMod,
-      ["buildFarmPlan", "createFarmPlan", "generateFarmPlan", "getFarmPlan"],
-      [p, { impliedFdv }],
-      (v): v is Rec => Boolean(v && typeof v === "object" && Array.isArray((v as Rec).steps) && (v as Rec).steps.length > 0)
-    );
-    const fallbackPlan = defaultFarmPlan(p, impliedFdv);
-    const farmPlan: FarmPlan = modPlan
-      ? {
-          ...fallbackPlan,
-          strategy: str(modPlan.strategy ?? modPlan.summary) || fallbackPlan.strategy,
-          steps: (modPlan.steps as unknown[]).map((s, idx) =>
-            typeof s === "string"
-              ? { step: idx + 1, action: `Step ${idx + 1}`, detail: s, chain: fallbackPlan.primaryChain, risk: fallbackPlan.riskLevel }
-              : {
-                  step: num((s as Rec).step) || idx + 1,
-                  action: str((s as Rec).action ?? (s as Rec).title) || `Step ${idx + 1}`,
-                  detail: str((s as Rec).detail ?? (s as Rec).description ?? (s as Rec).text) || fallbackPlan.steps[idx % fallbackPlan.steps.length].detail,
-                  chain: str((s as Rec).chain) || fallbackPlan.primaryChain,
-                  risk: str((s as Rec).risk) || fallbackPlan.riskLevel,
-                }
-          ),
-        }
-      : fallbackPlan;
-    const score = Math.round(clamp(num(modVal?.score) || est.score, 1, 99));
-    const tier: RadarRow["tier"] = score >= 82 ? "S" : score >= 68 ? "A" : score >= 52 ? "B" : "C";
+  const extVal = pickFn(valuationMod as Record<string, unknown>, ["valueProtocol", "estimateValuation", "computeValuation", "valuateProtocol"]);
+  const scored: RadarRow[] = candidates.map(({ p, watchlisted }) => {
+    const catKey = p.category.toLowerCase();
+    const peers = (compsByCat.get(catKey) || []).slice().sort((a, b) => Math.abs(a.tvl - p.tvl) - Math.abs(b.tvl - p.tvl) || cmpStr(a.slug, b.slug));
+    const baseMult = peers.length >= 3 ? Math.min(2.5, Math.max(0.12, median(peers.map((c) => c.multiple)))) : (CAT_MULT[catKey] ?? globalMult);
+    const annFees = p.fees30d > 0 ? p.fees30d * 12 : p.fees24h * 365;
+    const annRev = p.revenue30d * 12;
+    const tvlEst = p.tvl * baseMult;
+    const feeEst = annRev > 0 ? annRev * 18 : annFees > 0 ? annFees * 10 : 0;
+    const raiseEst = p.totalRaised > 0 ? p.totalRaised * 6 : 0;
+    let blended = tvlEst;
+    let method = peers.length >= 3 ? "Category Peer TVL Comps" : "Sector Baseline TVL Comps";
+    if (feeEst > 0 && tvlEst > 0) { blended = tvlEst * 0.55 + feeEst * 0.45; method = "Blended TVL + Annualized Fee Comps"; }
+    else if (feeEst > 0) { blended = feeEst; method = "Annualized Fee Multiple"; }
+    if (raiseEst > 0) { blended = blended > 0 ? blended * 0.78 + raiseEst * 0.22 : raiseEst; method += " + Raise Anchor"; }
+
+    const momBoost = p.change7d !== null ? Math.min(0.18, Math.max(-0.15, p.change7d / 100)) : 0;
+    const chainBoost = Math.min(0.15, (p.chains.length - 1) * 0.04);
+    const auditBoost = p.audits > 0 ? 0.06 : 0;
+    let impliedFdv = Math.max(2_500_000, Math.round(blended * (1 + momBoost + chainBoost + auditBoost)));
+    let score = Math.min(99, Math.max(12, Math.round(Math.log10(Math.max(1, impliedFdv)) * 10.2 + (p.fees30d > 0 ? 8 : 0) + (p.totalRaised > 0 ? 6 : 0) + (watchlisted ? 4 : 0) + (p.audits > 0 ? 3 : 0))));
+
+    if (extVal) {
+      try {
+        const res = asRec(extVal(p.raw, p, { peerMultiple: baseMult, peers }));
+        const extFdv = num(res.impliedFdv ?? res.impliedValue ?? res.fdv);
+        if (extFdv >= 1_000_000) impliedFdv = Math.round(extFdv);
+        const extScore = num(res.score);
+        if (extScore > 0 && extScore <= 100) score = Math.round(extScore);
+      } catch { /* keep deterministic model */ }
+    }
+
+    const signals: string[] = [];
+    if (p.tvl >= 100_000_000) signals.push("Top-tier TVL scale");
+    if (annFees >= 1_000_000) signals.push("Strong organic fee capture");
+    if (p.totalRaised >= 5_000_000) signals.push("Backed by venture funding");
+    if (p.chains.length >= 3) signals.push(`Multi-chain footprint (${p.chains.length} chains)`);
+    if (p.change7d !== null && p.change7d >= 10) signals.push(`Positive 7d TVL momentum (+${p.change7d.toFixed(1)}%)`);
+    if (watchlisted) signals.push("Priority watchlist target");
+    if (!signals.length) signals.push("Confirmed tokenless DeFi protocol");
+
+    const tier: "S" | "A" | "B" | "C" = impliedFdv >= 500_000_000 ? "S" : impliedFdv >= 150_000_000 ? "A" : impliedFdv >= 40_000_000 ? "B" : "C";
+    const confidence: "High" | "Medium" | "Low" = peers.length >= 4 && (p.fees30d > 0 || p.totalRaised > 0) ? "High" : p.tvl >= 5_000_000 ? "Medium" : "Low";
+
     return {
       rank: 0,
       id: p.id,
       slug: p.slug,
       name: p.name,
       category: p.category,
-      chains: p.chains.length ? p.chains : ["Ethereum"],
-      primaryChain: p.chains[0] || "Ethereum",
+      chain: p.chain,
+      chains: p.chains,
       tvl: Math.round(p.tvl),
-      change1d: Number(p.change1d.toFixed(2)),
-      change7d: Number(p.change7d.toFixed(2)),
-      change1m: Number(p.change1m.toFixed(2)),
+      change1d: p.change1d !== null ? Number(p.change1d.toFixed(2)) : null,
+      change7d: p.change7d !== null ? Number(p.change7d.toFixed(2)) : null,
+      fees24h: Math.round(p.fees24h),
       fees30d: Math.round(p.fees30d),
       revenue30d: Math.round(p.revenue30d),
-      volume30d: Math.round(p.volume30d),
-      raisesUsd: Math.round(p.raisesUsd),
+      volume24h: Math.round(p.volume24h),
+      totalRaised: Math.round(p.totalRaised),
       url: p.url,
       twitter: p.twitter,
       description: p.description,
-      watchlist: watch,
-      tokenStatus: hasLiveToken(p) ? "watchlist-tracked" : "pre-token",
+      watchlisted,
       impliedValue: impliedFdv,
       impliedFdv,
-      impliedFdvLow: Math.round(num(modVal?.impliedFdvLow ?? modVal?.low) || est.low),
-      impliedFdvHigh: Math.round(num(modVal?.impliedFdvHigh ?? modVal?.high) || est.high),
-      airdropPoolUsd: Math.round(num(modVal?.airdropPoolUsd ?? modVal?.airdrop) || est.airdrop),
-      valuationMultiple: Number((num(modVal?.valuationMultiple) || est.mult).toFixed(3)),
-      valuationBasis: str(modVal?.valuationBasis ?? modVal?.basis) || est.basis,
+      impliedMcap: Math.round(impliedFdv * 0.15),
+      lowFdv: Math.round(impliedFdv * 0.6),
+      highFdv: Math.round(impliedFdv * 1.65),
+      airdropPoolUsd: Math.round(impliedFdv * 0.07),
+      peerMultiple: Number(baseMult.toFixed(3)),
+      peerCount: peers.length,
+      confidence,
       score,
-      confidence: Math.round(clamp(num(modVal?.confidence) || est.confidence, 35, 95)),
       tier,
-      farmPlan,
+      valuationMethod: method,
+      signals,
+      comps: (peers.length ? peers : allComps).slice(0, 3),
+      farmPlan: defaultFarmPlan(p),
     };
   });
 
-  rows.sort((a, b) => b.impliedValue - a.impliedValue || b.tvl - a.tvl || cmpStr(a.slug, b.slug));
-  const limit = options.maxRows ? Math.max(options.maxRows, minRows) : rows.length;
-  const finalRows = rows.slice(0, limit);
-  finalRows.forEach((r, i) => {
-    r.rank = i + 1;
-  });
+  scored.sort((a, b) => b.impliedFdv - a.impliedFdv || b.score - a.score || b.tvl - a.tvl || cmpStr(a.slug, b.slug));
+  const keepCount = Math.max(minRows, limit);
+  const selected: RadarRow[] = [];
+  const seen = new Set<string>();
+  for (const row of scored) {
+    if (selected.length < keepCount || row.watchlisted) {
+      if (!seen.has(row.slug)) { seen.add(row.slug); selected.push(row); }
+    }
+  }
+  selected.sort((a, b) => b.impliedFdv - a.impliedFdv || b.score - a.score || b.tvl - a.tvl || cmpStr(a.slug, b.slug));
+  selected.forEach((r, idx) => { r.rank = idx + 1; });
 
-  const coveredSlugs = new Set(finalRows.filter((r) => r.watchlist).flatMap((r) => [r.slug, slugify(r.name), slugify(r.id)]));
-  const watchList = [...watchSet].sort(cmpStr);
-  const missing = watchList.filter((w) => !coveredSlugs.has(w));
-  const categories = summarizeGroups(finalRows, (r) => [r.category]);
-  const chains = summarizeGroups(finalRows, (r) => r.chains);
-  const totalImpliedValue = finalRows.reduce((s, r) => s + r.impliedValue, 0);
-  const totalTvl = finalRows.reduce((s, r) => s + r.tvl, 0);
-  const totalAirdropPool = finalRows.reduce((s, r) => s + r.airdropPoolUsd, 0);
+  const catAgg = new Map<string, { count: number; totalTvl: number; totalImpliedFdv: number; mults: number[] }>();
+  const chainAgg = new Map<string, { count: number; totalTvl: number }>();
+  const coveredSlugs = new Set<string>();
+  for (const r of selected) {
+    if (r.watchlisted) { coveredSlugs.add(r.slug); coveredSlugs.add(slugify(r.name)); coveredSlugs.add(slugify(r.id)); }
+    const c = catAgg.get(r.category) || { count: 0, totalTvl: 0, totalImpliedFdv: 0, mults: [] };
+    c.count++; c.totalTvl += r.tvl; c.totalImpliedFdv += r.impliedFdv; c.mults.push(r.peerMultiple);
+    catAgg.set(r.category, c);
+    const ch = chainAgg.get(r.chain) || { count: 0, totalTvl: 0 };
+    ch.count++; ch.totalTvl += r.tvl;
+    chainAgg.set(r.chain, ch);
+  }
+  const missingWatch = snap.watchlist.filter((w) => !coveredSlugs.has(w));
+  const categories = Array.from(catAgg.entries())
+    .map(([category, v]) => ({ category, count: v.count, totalTvl: v.totalTvl, totalImpliedFdv: v.totalImpliedFdv, medianMultiple: Number(median(v.mults).toFixed(3)) }))
+    .sort((a, b) => b.totalImpliedFdv - a.totalImpliedFdv || cmpStr(a.category, b.category));
+  const chains = Array.from(chainAgg.entries())
+    .map(([chain, v]) => ({ chain, count: v.count, totalTvl: v.totalTvl }))
+    .sort((a, b) => b.totalTvl - a.totalTvl || cmpStr(a.chain, b.chain));
+  const totalImpliedFdv = selected.reduce((acc, r) => acc + r.impliedFdv, 0);
 
   return {
-    schemaVersion: "token-radar/1",
-    asOf,
-    totalProtocols: snap.protocols.length,
-    tokenizedCount,
-    excludedCount,
-    candidateCount: finalRows.length,
-    watchlist: { total: watchList.length, covered: watchList.length - missing.length, missing, slugs: watchList },
+    asOf: snap.asOf,
+    rows: selected,
     summary: {
-      totalImpliedValue,
-      medianImpliedValue: Math.round(median(finalRows.map((r) => r.impliedValue))),
-      totalTvl,
-      totalAirdropPool,
-      topCategory: categories[0]?.name || "DeFi",
-      topChain: chains[0]?.name || "Ethereum",
+      totalProtocols: snap.protocols.length,
+      excludedWithToken,
+      excludedDerivative,
+      candidateCount: scored.length,
+      rowCount: selected.length,
+      watchlistTotal: snap.watchlist.length,
+      watchlistCovered: snap.watchlist.length - missingWatch.length,
+      totalImpliedFdv,
+      medianImpliedFdv: Math.round(median(selected.map((r) => r.impliedFdv))),
+      categoriesCount: categories.length,
+      chainsCount: chains.length,
     },
+    watchlist: { total: snap.watchlist.length, covered: snap.watchlist.length - missingWatch.length, missing: missingWatch, slugs: snap.watchlist },
     categories,
     chains,
-    benchmarks,
-    rows: finalRows,
+    exclusions: exclusions.slice(0, 40),
   };
 }
 
-export function boardIssue(input: RadarDataset | ParsedSnapshot | string | Buffer | Rec | unknown[]): BoardIssue {
-  const radar: RadarDataset = input && typeof input === "object" && "rows" in input && "benchmarks" in input
-    ? (input as RadarDataset)
-    : buildRadar(input);
+export function boardIssue(radar: RadarResult, title = "Token Launch Radar"): BoardIssue {
   return {
-    schemaVersion: radar.schemaVersion,
-    issueId: `token-radar-${radar.asOf.slice(0, 10)}`,
-    issuedAt: radar.asOf,
-    asOf: radar.asOf,
-    title: "Token Launch Radar",
-    counts: {
-      snapshotProtocols: radar.totalProtocols,
-      tokenizedExcluded: radar.tokenizedCount,
-      wrapperOrOtherExcluded: radar.excludedCount,
-      rankedRows: radar.rows.length,
-      watchlistTotal: radar.watchlist.total,
-      watchlistCovered: radar.watchlist.covered,
-    },
-    watchlist: radar.watchlist,
-    summary: radar.summary,
-    categories: radar.categories,
-    chains: radar.chains,
-    benchmarks: radar.benchmarks,
-    rows: radar.rows,
+    schema: "token-radar/1",
+    title,
+    generatedAt: radar.asOf,
+    ...radar,
   };
 }
 
-export function dataScript(data: RadarDataset | BoardIssue, globalName = "__RADAR_DATA__"): string {
-  const payload = JSON.stringify(data)
+export function dataScript(payload: unknown, globalName?: string): string {
+  const safeJson = JSON.stringify(payload)
     .replace(/</g, "\\u003c")
     .replace(/>/g, "\\u003e")
     .replace(/&/g, "\\u0026")
     .replace(/\u2028/g, "\\u2028")
     .replace(/\u2029/g, "\\u2029");
-  const alias = globalName === "__RADAR_DATA__" ? "\nwindow.RADAR_DATA = window.__RADAR_DATA__;" : "";
-  return `window[${JSON.stringify(globalName)}] = ${payload};${alias}\n`;
+  if (globalName) return `window[${JSON.stringify(globalName)}] = ${safeJson};\n`;
+  return `(function(){var d=${safeJson};window.__RADAR_DATA__=d;window.BOARD_DATA=d;})();\n`;
 }

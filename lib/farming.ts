@@ -1,492 +1,910 @@
+export type FarmDifficulty = "Low" | "Medium" | "High";
+export type RiskSeverity = "low" | "medium" | "high";
+export type FarmCategoryBucket =
+  | "dex"
+  | "perps"
+  | "lending"
+  | "staking"
+  | "bridge"
+  | "yield"
+  | "prediction"
+  | "launchpad"
+  | "wallet"
+  | "chain"
+  | "rwa"
+  | "nft"
+  | "generic";
+
+export interface FarmProtocolInput {
+  slug?: string | null;
+  name: string;
+  category?: string | null;
+  chain?: string | null;
+  chains?: string[] | null;
+  tvl?: number | null;
+  change_7d?: number | null;
+  change_1m?: number | null;
+  fees24h?: number | null;
+  revenue24h?: number | null;
+  impliedFdv?: number | null;
+  impliedAirdropUsd?: number | null;
+  airdropPct?: number | null;
+  score?: number | null;
+  audits?: string | number | null;
+  listedAt?: number | null;
+  chainTvls?: Record<string, number> | null;
+}
+
 export interface FarmStep {
   order: number;
+  title: string;
   action: string;
-  detail: string;
   targetMetric: string;
-  cadence: string;
-  estimatedGasUsd: number;
-  priority: "core" | "multiplier" | "optional";
+  estimatedTimeMin: number;
+  categoryTag: string;
 }
 
-export interface CapitalTier {
-  tier: "starter" | "active" | "whale";
+export interface CapitalTierPlan {
+  tier: "Starter" | "Core" | "Whale";
+  rangeUsd: string;
+  allocation: string;
+  estGasMonthlyUsd: number;
+  expectedShareNote: string;
+}
+
+export interface RiskFlag {
+  code: string;
+  severity: RiskSeverity;
   label: string;
-  minUsd: number;
-  maxUsd: number;
-  strategy: string;
-  estimatedYieldNote: string;
+  mitigation: string;
 }
 
-export interface RiskNote {
-  level: "low" | "medium" | "high";
-  category: string;
-  summary: string;
+export interface CadencePlan {
+  frequency: string;
+  minActiveWeeks: number;
+  recommendedTxPerWeek: number;
+  snapshotWindow: string;
 }
 
 export interface FarmPlan {
-  strategyTitle: string;
-  difficulty: "low" | "medium" | "high";
-  timeHorizon: string;
-  recommendedChain: string;
-  sybilDefenseNote: string;
-  estimatedSetupCostUsd: number;
+  archetype: FarmCategoryBucket;
+  strategyName: string;
+  difficulty: FarmDifficulty;
+  effortScore: number;
+  sybilSensitivity: FarmDifficulty;
+  primaryChain: string;
+  supportedChains: string[];
+  cadence: CadencePlan;
+  capitalTiers: CapitalTierPlan[];
   steps: FarmStep[];
-  capitalTiers: CapitalTier[];
-  catalystTags: string[];
-  riskNotes: RiskNote[];
+  riskFlags: RiskFlag[];
+  airdropCatalysts: string[];
   summary: string;
 }
 
-export interface FarmProtocolInput {
+interface PlaybookCtx {
   name: string;
-  slug?: string;
-  category?: string;
-  chains?: string[];
-  chain?: string;
-  tvl?: number;
-  impliedFdv?: number;
-  impliedValue?: number;
-  airdropPoolUsd?: number;
-  fundingUsd?: number;
-  change_7d?: number | null;
-  change_1m?: number | null;
-  url?: string;
-  description?: string;
-  audited?: boolean;
-  isWatchlist?: boolean;
-  score?: number;
-  launchWindow?: string;
+  chain: string;
+  tvlText: string;
+  altChain: string;
 }
 
-interface ChainProfile {
-  name: string;
-  txGasUsd: number;
-  speed: "fast" | "medium";
-  priorityRank: number;
-  bridgeHint: string;
+interface ArchetypeTemplate {
+  strategyName: string;
+  difficulty: FarmDifficulty;
+  sybilSensitivity: FarmDifficulty;
+  frequency: string;
+  minActiveWeeks: number;
+  txPerWeek: number;
+  gasMult: number;
+  tierAlloc: [string, string, string];
+  baseRisk: RiskFlag;
+  steps: (ctx: PlaybookCtx) => Omit<FarmStep, "order">[];
 }
 
-interface CategoryPlaybook {
-  key: string;
-  title: string;
-  difficulty: "low" | "medium" | "high";
-  sybilNote: string;
-  steps: (p: { name: string; chain: string; gas: number; bridge: string }) => FarmStep[];
-  risks: RiskNote[];
+interface ProtocolOverride {
+  strategyName: string;
+  snapshotWindow: string;
+  firstStep: Omit<FarmStep, "order">;
+  catalyst: string;
 }
 
-const CHAIN_PROFILES: Record<string, ChainProfile> = {
-  ethereum: { name: "Ethereum", txGasUsd: 4.5, speed: "medium", priorityRank: 45, bridgeHint: "Fund directly on Ethereum mainnet during off-peak UTC hours to limit gas drag" },
-  arbitrum: { name: "Arbitrum", txGasUsd: 0.08, speed: "fast", priorityRank: 92, bridgeHint: "Bridge ETH/USDC to Arbitrum via canonical or low-fee intent bridge" },
-  base: { name: "Base", txGasUsd: 0.03, speed: "fast", priorityRank: 96, bridgeHint: "Bridge ETH/USDC onto Base for sub-cent execution and high tx cadence" },
-  optimism: { name: "Optimism", txGasUsd: 0.05, speed: "fast", priorityRank: 88, bridgeHint: "Bridge ETH/USDC to OP Mainnet for low-cost recurring interactions" },
-  solana: { name: "Solana", txGasUsd: 0.01, speed: "fast", priorityRank: 95, bridgeHint: "Fund a native Solana wallet with SOL and USDC to keep rent and fees negligible" },
-  sui: { name: "Sui", txGasUsd: 0.01, speed: "fast", priorityRank: 90, bridgeHint: "Bridge USDC/SUI into a native Sui wallet for fast parallel execution" },
-  aptos: { name: "Aptos", txGasUsd: 0.01, speed: "fast", priorityRank: 84, bridgeHint: "Fund an Aptos wallet with APT and native USDC" },
-  hyperliquid: { name: "Hyperliquid", txGasUsd: 0.01, speed: "fast", priorityRank: 94, bridgeHint: "Deposit USDC from Arbitrum into Hyperliquid spot/perp or HyperEVM" },
-  berachain: { name: "Berachain", txGasUsd: 0.04, speed: "fast", priorityRank: 89, bridgeHint: "Bridge HONEY/ETH onto Berachain to stack protocol and PoL incentives" },
-  sonic: { name: "Sonic", txGasUsd: 0.02, speed: "fast", priorityRank: 87, bridgeHint: "Bridge S or USDC to Sonic to capture ecosystem points alongside protocol usage" },
-  linea: { name: "Linea", txGasUsd: 0.12, speed: "fast", priorityRank: 83, bridgeHint: "Bridge ETH via Linea canonical bridge to align with ecosystem snapshots" },
-  scroll: { name: "Scroll", txGasUsd: 0.1, speed: "fast", priorityRank: 80, bridgeHint: "Bridge ETH/USDC to Scroll for low-cost zkEVM interaction history" },
-  "zksync era": { name: "zkSync Era", txGasUsd: 0.1, speed: "fast", priorityRank: 81, bridgeHint: "Bridge ETH/USDC onto zkSync Era and maintain weekly active periods" },
-  starknet: { name: "Starknet", txGasUsd: 0.08, speed: "fast", priorityRank: 82, bridgeHint: "Fund a Starknet smart wallet with ETH/STRK and USDC" },
-  polygon: { name: "Polygon", txGasUsd: 0.03, speed: "fast", priorityRank: 78, bridgeHint: "Fund with POL and native USDC on Polygon PoS" },
-  avalanche: { name: "Avalanche", txGasUsd: 0.08, speed: "fast", priorityRank: 79, bridgeHint: "Fund Avalanche C-Chain with AVAX and USDC" },
-  bsc: { name: "BSC", txGasUsd: 0.06, speed: "fast", priorityRank: 76, bridgeHint: "Fund BNB Smart Chain with BNB and USDT/USDC" },
-  mantle: { name: "Mantle", txGasUsd: 0.04, speed: "fast", priorityRank: 82, bridgeHint: "Bridge MNT/ETH to Mantle for low-fee DeFi farming" },
-  blast: { name: "Blast", txGasUsd: 0.06, speed: "fast", priorityRank: 77, bridgeHint: "Bridge ETH/USDB to Blast for native yield plus protocol multipliers" },
-  abstract: { name: "Abstract", txGasUsd: 0.04, speed: "fast", priorityRank: 91, bridgeHint: "Fund Abstract Global Wallet with ETH to stack XP and protocol activity" },
-  ink: { name: "Ink", txGasUsd: 0.03, speed: "fast", priorityRank: 88, bridgeHint: "Bridge ETH to Ink via Superchain bridge to farm chain and app catalysts" },
-  unichain: { name: "Unichain", txGasUsd: 0.03, speed: "fast", priorityRank: 90, bridgeHint: "Bridge ETH/USDC to Unichain via Superchain bridge for fast LP and swaps" },
-  monad: { name: "Monad", txGasUsd: 0.02, speed: "fast", priorityRank: 93, bridgeHint: "Fund Monad wallet early to build native transaction longevity" },
-  megaeth: { name: "MegaETH", txGasUsd: 0.02, speed: "fast", priorityRank: 93, bridgeHint: "Bridge ETH to MegaETH to build high-frequency organic usage" },
-  bitcoin: { name: "Bitcoin", txGasUsd: 3.5, speed: "medium", priorityRank: 40, bridgeHint: "Use a dedicated Taproot/native SegWit wallet and consolidate UTXOs when mempool fees dip" },
-  ton: { name: "TON", txGasUsd: 0.05, speed: "fast", priorityRank: 75, bridgeHint: "Fund Tonkeeper with TON and USDt for native Telegram/TON DeFi" },
+const LOW_FEE_CHAINS = new Set([
+  "solana", "base", "arbitrum", "optimism", "polygon", "sui", "aptos",
+  "hyperliquid", "monad", "abstract", "ink", "soneium", "linea", "scroll",
+  "zksync era", "starknet", "avalanche", "bsc", "sei", "berachain", "sonic",
+  "blast", "mantle", "mode", "eclipse", "fuel", "movement", "unichain",
+]);
+
+const PROTOCOL_OVERRIDES: Record<string, ProtocolOverride> = {
+  polymarket: {
+    strategyName: "CLOB Maker Liquidity & Open-Interest Farming",
+    snapshotWindow: "Q2-Q4 catalyst window (post-regulatory clarity)",
+    firstStep: {
+      title: "Post Two-Sided Limit Orders on High-Volume Markets",
+      action: "Provide resting maker bids/asks within 1-2c of mid on top macro and crypto markets on Polygon.",
+      targetMetric: ">$10k cumulative filled volume + $500+ resting OI",
+      estimatedTimeMin: 15,
+      categoryTag: "liquidity",
+    },
+    catalyst: "Category-leading prediction market volume and active trader base",
+  },
+  pump: {
+    strategyName: "Fee-Weighted Spot & Launchpad Activity",
+    snapshotWindow: "High-priority TGE watch (peak fee velocity)",
+    firstStep: {
+      title: "Route Organic Spot & Bonding-Curve Trades",
+      action: "Execute disciplined trades across graduated and bonding pools via native UI rather than third-party bots.",
+      targetMetric: "20+ distinct sessions across 6+ weeks",
+      estimatedTimeMin: 12,
+      categoryTag: "volume",
+    },
+    catalyst: "Top-tier protocol revenue generation drives fee-rebate airdrop thesis",
+  },
+  meteora: {
+    strategyName: "DLMM Fee Generation & Dynamic Vault Points",
+    snapshotWindow: "Active points season (TGE imminent)",
+    firstStep: {
+      title: "Deploy Tight-Bin DLMM Liquidity on SOL/Stable Pairs",
+      action: "Open active DLMM positions in high-turnover Solana pairs and rebalance bins weekly to maximize fee points.",
+      targetMetric: "$25+ weekly LP fees earned + active Dynamic Vault deposit",
+      estimatedTimeMin: 18,
+      categoryTag: "lp",
+    },
+    catalyst: "Explicit LP fee-weighted points program on Solana",
+  },
+  symbiotic: {
+    strategyName: "Multi-Vault Collateral Restaking & DeFi Composability",
+    snapshotWindow: "Post-mainnet slashing activation window",
+    firstStep: {
+      title: "Deposit LST/LRT Collateral into Capped Curated Vaults",
+      action: "Stake wstETH or sUSDe into active Symbiotic vaults and route receipt tokens into secondary yield markets.",
+      targetMetric: "Continuous deposit held >= 60 days",
+      estimatedTimeMin: 12,
+      categoryTag: "restake",
+    },
+    catalyst: "Leading modular restaking TVL without a native governance token",
+  },
+  lombard: {
+    strategyName: "LBTC Minting & Cross-DeFi BTCfi Looping",
+    snapshotWindow: "Mid-term TGE (Lux points accumulation)",
+    firstStep: {
+      title: "Mint LBTC and Deploy into Partner Lending/DEX Pools",
+      action: "Convert BTC to LBTC and supply into high-multiplier DeFi integrations rather than holding idle in wallet.",
+      targetMetric: "Active LBTC DeFi LP/lending multiplier >= 2x",
+      estimatedTimeMin: 20,
+      categoryTag: "btcfi",
+    },
+    catalyst: "Dominant liquid-staked Bitcoin footprint across EVM chains",
+  },
+  paradex: {
+    strategyName: "Perp OI Maintenance & Gigavault Yield Capture",
+    snapshotWindow: "Active XP epoch schedule",
+    firstStep: {
+      title: "Combine Maker Perp Volume with Vault Margin",
+      action: "Trade zero-fee maker perps while maintaining hedged open interest and allocating idle USDC to the vault.",
+      targetMetric: "Weekly XP consistency over 8+ epochs",
+      estimatedTimeMin: 15,
+      categoryTag: "perps",
+    },
+    catalyst: "Structured weekly XP program tied to volume and TVL",
+  },
+  lighter: {
+    strategyName: "Orderbook Market-Making & Perp Point Farming",
+    snapshotWindow: "Private-to-public mainnet points phase",
+    firstStep: {
+      title: "Maintain Tight Maker Quotes and Balanced Perp OI",
+      action: "Use limit orders on major BTC/ETH/SOL perp books while keeping delta hedged across an external venue.",
+      targetMetric: "Consistent weekly maker fills + zero wash-trade loops",
+      estimatedTimeMin: 15,
+      categoryTag: "perps",
+    },
+    catalyst: "Rapidly scaling verifiable zk-orderbook perp volume",
+  },
+  relay: {
+    strategyName: "Multi-Corridor Instant Bridge & Swap Cadence",
+    snapshotWindow: "Mid-term infrastructure token watch",
+    firstStep: {
+      title: "Bridge Across 5+ Distinct L2 Corridors Organically",
+      action: "Use Relay as primary cross-chain router between Base, Arbitrum, Optimism, and Solana with varied ticket sizes.",
+      targetMetric: "15+ bridges across 5+ chains and 6+ distinct weeks",
+      estimatedTimeMin: 8,
+      categoryTag: "bridge",
+    },
+    catalyst: "High organic cross-chain fill count and solver revenue",
+  },
+  jumper: {
+    strategyName: "LI.FI Multi-Chain Aggregator XP & Loyalty Pass",
+    snapshotWindow: "Loyalty Pass seasonal milestone window",
+    firstStep: {
+      title: "Route Cross-Chain Swaps via Jumper UI for Loyalty XP",
+      action: "Consolidate routine L2 swaps and bridges through Jumper to climb monthly Loyalty Pass tiers.",
+      targetMetric: "Top Loyalty Pass tier + 4+ source chains",
+      estimatedTimeMin: 10,
+      categoryTag: "bridge",
+    },
+    catalyst: "Explicit Loyalty Pass XP tracking across LI.FI routers",
+  },
+  base: {
+    strategyName: "Ecosystem Native Usage, LP Depth & Builder Footprint",
+    snapshotWindow: "Speculative long-horizon L2 decentralization watch",
+    firstStep: {
+      title: "Establish Deep On-Chain History Across Core Base dApps",
+      action: "Bridge via canonical bridge, supply liquidity on native DEXs/lending markets, and interact across 10+ contracts.",
+      targetMetric: "12+ active months, 20+ contracts, durable DeFi TVL",
+      estimatedTimeMin: 15,
+      categoryTag: "ecosystem",
+    },
+    catalyst: "Largest EVM L2 activity footprint if governance decentralizes",
+  },
+  linea: {
+    strategyName: "LXP-L Liquidity Provision & Native DeFi Retention",
+    snapshotWindow: "Near-term TGE watch (post-Surge campaign)",
+    firstStep: {
+      title: "Maintain Sticky Core DeFi Liquidity on Linea",
+      action: "Supply ETH or stables in leading Linea lending and DEX pools while keeping weekly native tx cadence.",
+      targetMetric: "Durable TVL + verified Proof-of-Humanity wallet",
+      estimatedTimeMin: 12,
+      categoryTag: "ecosystem",
+    },
+    catalyst: "Multi-season LXP and LXP-L campaigns signaling token distribution",
+  },
+  abstract: {
+    strategyName: "Consumer App XP & Weekly Portal Streak",
+    snapshotWindow: "Active XP seasons",
+    firstStep: {
+      title: "Complete Weekly Portal Quests & Native App Interactions",
+      action: "Fund Abstract Global Wallet, swap on native DEXs, and engage with featured consumer apps every week.",
+      targetMetric: "8+ consecutive weekly XP drops",
+      estimatedTimeMin: 12,
+      categoryTag: "ecosystem",
+    },
+    catalyst: "Live weekly XP leaderboard on ZK consumer rollup",
+  },
+  opensea: {
+    strategyName: "OS2 Cross-Chain Marketplace & Token Swap Activity",
+    snapshotWindow: "Confirmed SEA token launch window",
+    firstStep: {
+      title: "Trade Collections & Place Collection Offers on OS2",
+      action: "Generate organic marketplace bids, listings, and OS2 token swaps across supported chains without self-trading.",
+      targetMetric: "Active OS2 XP rank across 6+ weeks",
+      estimatedTimeMin: 12,
+      categoryTag: "nft",
+    },
+    catalyst: "Confirmed SEA token plan rewarding historical and OS2 activity",
+  },
+  resolv: {
+    strategyName: "USR Stablecoin Yield & Pendle Point Multiplier",
+    snapshotWindow: "Active points epoch window",
+    firstStep: {
+      title: "Mint/Hold USR and Deploy into Boosted LP/Pendle Pools",
+      action: "Convert USDC into USR or RLP and pair in whitelisted pools to stack base yield plus protocol points.",
+      targetMetric: "Continuous USR/RLP position >= 45 days",
+      estimatedTimeMin: 12,
+      categoryTag: "yield",
+    },
+    catalyst: "Delta-neutral stablecoin TVL surge with active points tracking",
+  },
+  rabby: {
+    strategyName: "Native In-Wallet Swap & Gas Top-Up Points",
+    snapshotWindow: "Ongoing Rabby Points campaign",
+    firstStep: {
+      title: "Execute Periodic In-Wallet Swaps & Claim Weekly Points",
+      action: "Route organic L2 swaps through Rabby Swap and use GasAccount top-ups while maintaining clean wallet hygiene.",
+      targetMetric: "Weekly swap cadence + claimed Rabby Points",
+      estimatedTimeMin: 6,
+      categoryTag: "wallet",
+    },
+    catalyst: "Live wallet points program backed by DeBank ecosystem",
+  },
+  metamask: {
+    strategyName: "Portfolio Swap, Bridge & Staking Footprint",
+    snapshotWindow: "Long-horizon decentralization watch",
+    firstStep: {
+      title: "Use MetaMask Portfolio Swaps, Bridge & Native Staking",
+      action: "Execute moderate-size swaps and bridges on low-fee L2s via MetaMask Portfolio to establish multi-quarter history.",
+      targetMetric: "$5k+ cumulative Portfolio volume across 3+ chains",
+      estimatedTimeMin: 10,
+      categoryTag: "wallet",
+    },
+    catalyst: "Dominant Web3 wallet fee engine with recurring token speculation",
+  },
+  backpack: {
+    strategyName: "Exchange Volume, Lending Yield & Wallet Synergy",
+    snapshotWindow: "Active seasonal rank program",
+    firstStep: {
+      title: "Generate Spot/Perp Volume and Enable Auto-Lend Collateral",
+      action: "Trade liquid pairs on Backpack Exchange while keeping margin lent out and pairing activity with Backpack Wallet.",
+      targetMetric: "Consistent seasonal volume rank across 6+ weeks",
+      estimatedTimeMin: 15,
+      categoryTag: "perps",
+    },
+    catalyst: "Seasonal rank system across exchange and Solana wallet stack",
+  },
 };
 
-function getChainProfile(chainName: string): ChainProfile {
-  const key = chainName.trim().toLowerCase();
-  if (CHAIN_PROFILES[key]) return CHAIN_PROFILES[key];
-  return {
-    name: chainName || "Ethereum",
-    txGasUsd: 0.15,
-    speed: "fast",
-    priorityRank: 70,
-    bridgeHint: `Bridge gas token and stablecoins to ${chainName || "the primary chain"} via the official route`,
-  };
-}
-
-export function selectBestChain(chains?: string[], fallbackChain?: string): string {
-  const list = (chains ?? []).filter((c) => Boolean(c && c.trim() && c.toLowerCase() !== "multi-chain"));
-  if (list.length === 0) return fallbackChain && fallbackChain.trim() ? fallbackChain.trim() : "Ethereum";
-  const sorted = [...list].sort((a, b) => {
-    const pa = getChainProfile(a).priorityRank;
-    const pb = getChainProfile(b).priorityRank;
-    if (pb !== pa) return pb - pa;
-    return a.localeCompare(b);
-  });
-  return sorted[0];
-}
-
-function normalizeCategoryKey(category?: string, description?: string): string {
-  const text = `${category ?? ""} ${description ?? ""}`.toLowerCase();
-  if (/perp|derivative|option|futures|margin|synthetics/.test(text)) return "derivatives";
-  if (/restak|liquid staking|lst|lrt|staking pool/.test(text)) return "restaking";
-  if (/lend|borrow|cdp|money market|credit/.test(text)) return "lending";
-  if (/bridge|cross.?chain|interop|messaging|intent/.test(text)) return "bridge";
-  if (/prediction|betting|polymarket|forecast/.test(text)) return "prediction";
-  if (/rwa|treasury|real world|t-bill|tokenized/.test(text)) return "rwa";
-  if (/yield|vault|aggregator|farm|basis|structured/.test(text)) return "yield";
-  if (/dex|amm|swap|liquidity|orderbook|clmm/.test(text)) return "dex";
-  if (/launchpad|nft|gaming|social|depin|ai|privacy|payment|wallet/.test(text)) return "consumer";
-  return "general";
-}
-
-const PLAYBOOKS: Record<string, CategoryPlaybook> = {
-  derivatives: {
-    key: "derivatives",
-    title: "Perp Volume & Vault Liquidity Farm",
-    difficulty: "high",
-    sybilNote: "Avoid self-hedging identical entry/exit timestamps across linked wallets; vary position size, pairs, and hold duration (15m+).",
-    steps: ({ name, chain, gas, bridge }) => [
-      { order: 1, action: `Fund ${name} margin account on ${chain}`, detail: `${bridge}, then deposit USDC or native collateral into ${name} margin.`, targetMetric: ">= $250 initial margin", cadence: "One-time setup", estimatedGasUsd: gas * 2, priority: "core" },
-      { order: 2, action: "Build organic perp volume & open interest", detail: `Execute limit-order trades on top liquid pairs on ${name} to capture maker rebates, volume points, and OI snapshots.`, targetMetric: "$10k-$100k monthly notional", cadence: "2-3 sessions/week", estimatedGasUsd: gas * 8, priority: "core" },
-      { order: 3, action: "Allocate to protocol liquidity / HLP-style vault", detail: `Stake idle USDC into ${name}'s counterparty or market-making vault if available for passive daily point accrual.`, targetMetric: "20-40% of farm capital", cadence: "Hold 30+ days", estimatedGasUsd: gas * 2, priority: "multiplier" },
-      { order: 4, action: "Maintain multi-epoch consistency & referral tier", detail: `Keep at least 1 active trade per weekly epoch and bind an active referral/fee-discount code before TGE snapshot.`, targetMetric: "6+ consecutive active weeks", cadence: "Weekly", estimatedGasUsd: gas * 2, priority: "optional" },
+const ARCHETYPES: Record<FarmCategoryBucket, ArchetypeTemplate> = {
+  dex: {
+    strategyName: "Concentrated LP Fee Farming & Organic Swap Cadence",
+    difficulty: "Medium",
+    sybilSensitivity: "Medium",
+    frequency: "Weekly rebalance & swap",
+    minActiveWeeks: 8,
+    txPerWeek: 3,
+    gasMult: 1.2,
+    tierAlloc: [
+      "70% wide-range blue-chip LP, 30% weekly spot swaps",
+      "60% active concentrated LP, 25% stable LP, 15% swap volume",
+      "50% multi-tier CLMM ranges, 35% stable pools, 15% fee-tier routing",
     ],
-    risks: [
-      { level: "high", category: "Market & Liquidation", summary: "Leverage and adverse funding swings can erase expected airdrop EV; stick to 1x-3x hedged or low-delta maker orders." },
-      { level: "medium", category: "Wash-Trading Filter", summary: "Perp protocols aggressively penalize zero-hold wash trades and identical-IP wallet clusters at TGE." },
+    baseRisk: {
+      code: "IMPERMANENT_LOSS",
+      severity: "medium",
+      label: "Impermanent Loss on Volatile Ranges",
+      mitigation: "Favor correlated pairs (stables/LSTs) or keep range width >= +/-15%.",
+    },
+    steps: (c) => [
+      { title: `Onboard Liquidity to ${c.chain}`, action: `Bridge core assets (ETH/USDC/SOL) onto ${c.chain} using a native or canonical route.`, targetMetric: "Clean funded address with >= 3 prior chain txs", estimatedTimeMin: 8, categoryTag: "setup" },
+      { title: "Seed Fee-Generating Core LP Position", action: `Supply liquidity to ${c.name}'s top fee-generating pool (current protocol TVL ${c.tvlText}) and keep position in range.`, targetMetric: "Hold active LP >= 30 days earning real fees", estimatedTimeMin: 12, categoryTag: "lp" },
+      { title: "Build Multi-Week Organic Swap History", action: `Route routine spot swaps across 3+ token pairs on ${c.name} UI with varied ticket sizes.`, targetMetric: "15+ swaps across >= 6 distinct weeks", estimatedTimeMin: 8, categoryTag: "volume" },
+      { title: "Harvest & Compound Fees Periodically", action: "Claim accrued LP fees and test limit/TWAP order modules if available to qualify for power-user multipliers.", targetMetric: "2+ feature modules used + fee harvest tx", estimatedTimeMin: 6, categoryTag: "retention" },
     ],
   },
-  dex: {
-    key: "dex",
-    title: "Concentrated LP & Organic Swap Cadence",
-    difficulty: "medium",
-    sybilNote: "Space swaps across distinct days and pairs; avoid round-trip swaps back to the same asset within the same block.",
-    steps: ({ name, chain, gas, bridge }) => [
-      { order: 1, action: `Onboard capital to ${chain}`, detail: `${bridge} and verify official ${name} router contracts before approving spend limits.`, targetMetric: "Gas buffer + working stables/ETH", cadence: "One-time setup", estimatedGasUsd: gas * 2, priority: "core" },
-      { order: 2, action: `Provide productive LP on ${name}`, detail: `Deploy liquidity into high-fee correlated or blue-chip pools (e.g. ETH/USDC or stable/stable) to earn real fees and LP snapshots.`, targetMetric: "In-range LP held >= 30 days", cadence: "Rebalance bi-weekly", estimatedGasUsd: gas * 3, priority: "core" },
-      { order: 3, action: "Generate recurring swap & limit-order activity", detail: `Route genuine portfolio rebalances through ${name} across 3+ pairs to hit both volume and unique-week thresholds.`, targetMetric: ">= 8 active weeks & 3+ pairs", cadence: "Weekly", estimatedGasUsd: gas * 4, priority: "multiplier" },
-      { order: 4, action: "Claim quests, badges & partner integrations", detail: `Check ${name}'s points dashboard or partner aggregators for boosted pools and early-user roles.`, targetMetric: "All core campaign badges", cadence: "Bi-weekly", estimatedGasUsd: gas, priority: "optional" },
+  perps: {
+    strategyName: "Delta-Neutral Maker Volume & Vault Liquidity",
+    difficulty: "High",
+    sybilSensitivity: "High",
+    frequency: "2-3 sessions/week",
+    minActiveWeeks: 8,
+    txPerWeek: 5,
+    gasMult: 1.0,
+    tierAlloc: [
+      "60% protocol liquidity vault, 40% low-leverage (<=2x) maker trades",
+      "50% hedged perp margin (<=3x), 50% HLP/protocol vault",
+      "45% multi-pair maker OI hedged externally, 55% vault liquidity",
     ],
-    risks: [
-      { level: "medium", category: "Impermanent Loss", summary: "Tight concentrated ranges amplify IL during volatile regimes; prefer correlated pairs for pure airdrop farming." },
-      { level: "medium", category: "Smart Contract", summary: "Custom AMM hooks and router approvals should be capped to exact deposit amounts." },
+    baseRisk: {
+      code: "LIQUIDATION_AND_FUNDING",
+      severity: "high",
+      label: "Leverage Liquidation & Funding Bleed",
+      mitigation: "Cap leverage at <=3x, hedge directional delta externally, and avoid negative funding traps.",
+    },
+    steps: (c) => [
+      { title: `Deposit Margin Collateral on ${c.chain}`, action: `Fund your ${c.name} margin account with USDC/USDT on ${c.chain} and enable sub-account risk caps.`, targetMetric: "Active margin balance maintained across epochs", estimatedTimeMin: 8, categoryTag: "setup" },
+      { title: "Generate Maker-Weighted Perp Volume", action: `Place resting limit orders on liquid BTC/ETH/SOL perp markets on ${c.name} to capture maker fee rebates and volume points.`, targetMetric: "Weekly volume >= 10x deposited collateral", estimatedTimeMin: 20, categoryTag: "volume" },
+      { title: "Hold Genuine Open Interest Overnight", action: "Maintain delta-hedged positions for 12-48h rather than instant open/close loops that trigger wash-trade filters.", targetMetric: "Average hold duration >= 12h per trade", estimatedTimeMin: 10, categoryTag: "oi" },
+      { title: "Allocate Idle Margin to Protocol Vault", action: `Deposit idle stablecoins into ${c.name}'s LP/market-making vault if offered to earn passive points and fee yield.`, targetMetric: "Sticky vault deposit >= 30 days", estimatedTimeMin: 8, categoryTag: "vault" },
     ],
   },
   lending: {
-    key: "lending",
-    title: "Supply-Borrow Points & Health-Factor Farm",
-    difficulty: "medium",
-    sybilNote: "Keep positions open across multiple snapshots rather than flash-depositing before rumored cutoff dates.",
-    steps: ({ name, chain, gas, bridge }) => [
-      { order: 1, action: `Prepare blue-chip collateral on ${chain}`, detail: `${bridge} using liquid assets (ETH, LSTs, WBTC, or USDC) accepted by ${name}.`, targetMetric: "Clean collateral wallet", cadence: "One-time setup", estimatedGasUsd: gas * 2, priority: "core" },
-      { order: 2, action: `Supply core collateral to ${name}`, detail: `Deposit collateral into highest-multiplier or lowest-utilization markets on ${name} to establish time-weighted TVL.`, targetMetric: "Continuous supply >= 45 days", cadence: "Hold & monitor weekly", estimatedGasUsd: gas * 2, priority: "core" },
-      { order: 3, action: "Execute conservative borrow / correlated loop", detail: `Borrow a correlated asset at <= 55% LTV (e.g. borrow ETH against LST or stables against yield stables) to unlock borrow-side multipliers.`, targetMetric: "Health factor >= 1.65", cadence: "Review weekly", estimatedGasUsd: gas * 3, priority: "multiplier" },
-      { order: 4, action: "Participate in governance or risk-curated vaults", detail: `Vote on Snapshot proposals or allocate a slice to curated earn vaults tied to ${name}.`, targetMetric: "On-chain governance + vault tx", cadence: "Monthly", estimatedGasUsd: gas, priority: "optional" },
+    strategyName: "Clean Supply-Borrow Utilization & Health Buffer",
+    difficulty: "Low",
+    sybilSensitivity: "Low",
+    frequency: "Bi-weekly review",
+    minActiveWeeks: 10,
+    txPerWeek: 1,
+    gasMult: 1.1,
+    tierAlloc: [
+      "100% single-sided blue-chip supply (no risky leverage)",
+      "70% blue-chip supply, 30% conservative correlated borrow (<45% LTV)",
+      "60% multi-market supply, 40% e-Mode LST/stable borrow loop",
     ],
-    risks: [
-      { level: "high", category: "Liquidation & Depeg", summary: "Oracle lag or LST depegs can liquidate looped positions; monitor borrow APR spikes and maintain a wide health margin." },
-      { level: "medium", category: "Utilization Lock", summary: "100% pool utilization can temporarily delay withdrawals during market stress." },
+    baseRisk: {
+      code: "BORROW_LIQUIDATION",
+      severity: "medium",
+      label: "Rate Spikes & Collateral Liquidation",
+      mitigation: "Keep Health Factor > 1.65 and monitor utilization caps during volatility.",
+    },
+    steps: (c) => [
+      { title: `Supply Core Blue-Chip Collateral on ${c.chain}`, action: `Deposit ETH, WBTC, or USDC into ${c.name}'s deepest lending market (TVL ${c.tvlText}).`, targetMetric: "Supply balance held continuously >= 45 days", estimatedTimeMin: 10, categoryTag: "supply" },
+      { title: "Execute Conservative Correlated Borrow", action: "Borrow <=40% LTV in a correlated asset or stablecoin to trigger borrower point multipliers safely.", targetMetric: "Active borrow position with Health Factor > 1.65", estimatedTimeMin: 10, categoryTag: "borrow" },
+      { title: "Re-Deploy Borrowed Capital Productively", action: `Route borrowed stables into an integrated yield vault or LP on ${c.chain} instead of idling.`, targetMetric: "Zero circular dust loops; positive net APY", estimatedTimeMin: 10, categoryTag: "loop" },
+      { title: "Perform Bi-Weekly Repay/Top-Up Hygiene", action: "Accrue interest cleanly and execute periodic partial repayments to demonstrate active stewardship.", targetMetric: "4+ lifecycle txs over >= 8 weeks", estimatedTimeMin: 6, categoryTag: "retention" },
     ],
   },
-  restaking: {
-    key: "restaking",
-    title: "Liquid Restaking & DeFi Composability Stack",
-    difficulty: "low",
-    sybilNote: "Holding an LRT/LST in a DeFi integration (lending/LP/Pendle-style YT/LP) typically earns 2x-3x base staking points.",
-    steps: ({ name, chain, gas, bridge }) => [
-      { order: 1, action: `Stage base staking asset on ${chain}`, detail: `${bridge} with ETH, SOL, BTC wrapper, or native chain token supported by ${name}.`, targetMetric: "Base asset ready", cadence: "One-time setup", estimatedGasUsd: gas * 2, priority: "core" },
-      { order: 2, action: `Mint ${name} staking / restaking receipt token`, detail: `Stake directly through ${name}'s native deposit contract (not just secondary DEX buys) to qualify for native minter bonuses.`, targetMetric: "Direct mint + hold >= 60 days", cadence: "Hold", estimatedGasUsd: gas * 2, priority: "core" },
-      { order: 3, action: "Deploy receipt token into partner DeFi integrations", detail: `Supply the ${name} receipt token into whitelisted lending, LP, or fixed-yield pools to stack protocol + partner points.`, targetMetric: "2x+ composability multiplier", cadence: "Review bi-weekly", estimatedGasUsd: gas * 3, priority: "multiplier" },
-      { order: 4, action: "Track unstaking queue & epoch snapshots", detail: `Note withdrawal cooldown windows before TGE so you can rotate liquidity cleanly if secondary discounts widen.`, targetMetric: "Exit plan documented", cadence: "Monthly", estimatedGasUsd: gas, priority: "optional" },
+  staking: {
+    strategyName: "Native Minting & Secondary DeFi Multiplier Loop",
+    difficulty: "Low",
+    sybilSensitivity: "Low",
+    frequency: "Monthly rebalance",
+    minActiveWeeks: 12,
+    txPerWeek: 1,
+    gasMult: 1.15,
+    tierAlloc: [
+      "100% native mint & hold LST/LRT on low-fee L2",
+      "60% DeFi LP/lending integration, 40% native staked receipt",
+      "50% Pendle/yield-market LP, 35% money-market collateral, 15% liquid reserve",
     ],
-    risks: [
-      { level: "medium", category: "Slashing & Queue Delay", summary: "Unstaking queues can span 7-21 days; secondary DEX exits may trade at a 1%-4% discount during stress." },
-      { level: "medium", category: "Stacked Contract Risk", summary: "Nesting LRTs inside external lending or yield protocols compounds smart contract exposure." },
+    baseRisk: {
+      code: "DEPEG_AND_EXIT_QUEUE",
+      severity: "medium",
+      label: "Withdrawal Queue Delay & Secondary Depeg",
+      mitigation: "Check DEX exit depth before sizing and avoid leveraged LRT loops near peg stress.",
+    },
+    steps: (c) => [
+      { title: `Mint ${c.name} Staked Receipt Directly`, action: `Stake native collateral via ${c.name}'s official mint contract on ${c.chain} rather than buying on thin DEXs if mint bonus applies.`, targetMetric: "Direct protocol mint tx on-chain", estimatedTimeMin: 10, categoryTag: "mint" },
+      { title: "Deploy Receipt into Boosted DeFi Pools", action: `Supply your minted token into whitelisted DEX LP, lending, or yield-splitting pools on ${c.chain} for 2x-4x points.`, targetMetric: "Active DeFi composability multiplier", estimatedTimeMin: 15, categoryTag: "multiplier" },
+      { title: "Hold Through Full Epoch Snapshots", action: "Avoid withdrawing before epoch boundaries; staking protocols heavily weight time-weighted TVL.", targetMetric: "Continuous time-weighted balance >= 60 days", estimatedTimeMin: 5, categoryTag: "retention" },
+      { title: "Track Redemption Queue & Re-Stake Rewards", action: "Monitor validator/operator yield and re-deploy accrued rewards across at least one secondary chain if supported.", targetMetric: "Verified points accrual & clean exit path", estimatedTimeMin: 6, categoryTag: "monitor" },
     ],
   },
   bridge: {
-    key: "bridge",
-    title: "Multi-Corridor Bridge & Volume Consistency Farm",
-    difficulty: "low",
-    sybilNote: "Bridge realistic amounts across 3+ distinct chains over multiple months; avoid bouncing identical sums back and forth.",
-    steps: ({ name, chain, gas, bridge }) => [
-      { order: 1, action: `Prepare multi-chain gas starting on ${chain}`, detail: `${bridge} and hold small gas balances on at least 2 destination chains.`, targetMetric: "3+ active chains funded", cadence: "One-time setup", estimatedGasUsd: gas * 3, priority: "core" },
-      { order: 2, action: `Route organic transfers through ${name}`, detail: `Use ${name} across diverse source/destination corridors for actual portfolio moves rather than ping-pong transfers.`, targetMetric: ">= 10 transfers across 3+ chains", cadence: "Weekly", estimatedGasUsd: gas * 6, priority: "core" },
-      { order: 3, action: "Provide bridge LP or relayer liquidity", detail: `If ${name} offers permissionless stablecoin/ETH bridge pools, supply steady liquidity to capture LP-tier allocations.`, targetMetric: "LP held >= 30 days", cadence: "Hold", estimatedGasUsd: gas * 2, priority: "multiplier" },
-      { order: 4, action: "Test secondary features & message passing", detail: `Interact with swap-and-bridge, refuel, or omnichain NFT/message features to hit feature-diversity criteria.`, targetMetric: "2+ product modules used", cadence: "Monthly", estimatedGasUsd: gas * 2, priority: "optional" },
+    strategyName: "Multi-Corridor Organic Routing & Weekly Cadence",
+    difficulty: "Low",
+    sybilSensitivity: "High",
+    frequency: "Weekly varied corridor",
+    minActiveWeeks: 10,
+    txPerWeek: 2,
+    gasMult: 0.9,
+    tierAlloc: [
+      "100% rotating working capital ($250-$1k) across L2s",
+      "80% working capital bridging across 5+ chains, 20% gas reserves",
+      "70% institutional-size transfers ($5k+) across L1/L2, 30% LP/solver pool",
     ],
-    risks: [
-      { level: "medium", category: "Bridge Security", summary: "Cross-chain messaging and solver contracts carry elevated exploit risk; avoid leaving excessive idle funds in unaudited pools." },
-      { level: "medium", category: "Sybil Filtering", summary: "Bridges heavily filter single-day farmers and wallets funded from the same centralized sub-account." },
+    baseRisk: {
+      code: "SYBIL_ROUNDTRIP_FILTER",
+      severity: "high",
+      label: "Strict Sybil & Round-Trip Clustering",
+      mitigation: "Never ping-pong identical amounts back and forth; spend funds on destination dApps between bridges.",
+    },
+    steps: (c) => [
+      { title: "Map 4-6 Distinct Source/Destination Corridors", action: `Plan organic transfers through ${c.name} linking ${c.chain}, ${c.altChain}, and at least two other active L2s.`, targetMetric: ">= 4 unique chains touched", estimatedTimeMin: 8, categoryTag: "setup" },
+      { title: "Execute Varied-Size Weekly Bridges", action: "Bridge non-round ticket sizes with natural 3-7 day spacing instead of bursting all volume in one weekend.", targetMetric: "12+ bridges across >= 8 distinct weeks", estimatedTimeMin: 8, categoryTag: "volume" },
+      { title: "Perform Destination On-Chain Activity", action: "After each bridge arrival, execute at least one swap or deposit on the destination chain before bridging onward.", targetMetric: "Zero back-to-back round-trip transfers", estimatedTimeMin: 8, categoryTag: "hygiene" },
+      { title: "Provide Bridge Liquidity (Optional Multiplier)", action: `If ${c.name} offers passive liquidity pools, allocate a small core stake to earn fee share + LP weight.`, targetMetric: "Combined user + LP eligibility", estimatedTimeMin: 10, categoryTag: "lp" },
     ],
   },
   yield: {
-    key: "yield",
-    title: "Time-Weighted Vault & Yield Tokenization Farm",
-    difficulty: "low",
-    sybilNote: "Early TVL cohorts and sustained time-weighted balances outperform last-minute whale deposits.",
-    steps: ({ name, chain, gas, bridge }) => [
-      { order: 1, action: `Fund stablecoin or base yield asset on ${chain}`, detail: `${bridge} so entry/exit fees stay under 0.5% of expected yield.`, targetMetric: "Yield collateral ready", cadence: "One-time setup", estimatedGasUsd: gas * 2, priority: "core" },
-      { order: 2, action: `Deposit into ${name}'s flagship vault`, detail: `Enter audited, high-liquidity strategies on ${name} to accumulate continuous time-weighted points and organic APY.`, targetMetric: "Continuous deposit >= 45 days", cadence: "Hold & monitor", estimatedGasUsd: gas * 2, priority: "core" },
-      { order: 3, action: "Use boosted maturity / lock or partner pools", detail: `Evaluate short lockup vaults or yield-token LP integrations where point multipliers outweigh liquidity lock risk.`, targetMetric: "Selective 1.5x-3x boost", cadence: "Monthly roll", estimatedGasUsd: gas * 2, priority: "multiplier" },
-      { order: 4, action: "Compound rewards & verify epoch accrual", detail: `Confirm points/shares accrue cleanly on-chain and avoid withdrawing right before epoch settlement.`, targetMetric: "Zero missed epochs", cadence: "Bi-weekly", estimatedGasUsd: gas, priority: "optional" },
+    strategyName: "Core Vault Retention & Yield-Token Optimization",
+    difficulty: "Medium",
+    sybilSensitivity: "Low",
+    frequency: "Bi-weekly maturity check",
+    minActiveWeeks: 10,
+    txPerWeek: 1,
+    gasMult: 1.0,
+    tierAlloc: [
+      "100% liquid stablecoin or ETH yield vault",
+      "70% core vault deposit, 30% fixed-yield/LP pool",
+      "60% multi-vault strategy, 25% LP, 15% YT points boost (capped risk)",
     ],
-    risks: [
-      { level: "medium", category: "Strategy Dependency", summary: "Underlying yield sources (basis trades, lending rates, external protocols) can compress or incur drawdowns." },
-      { level: "low", category: "Opportunity Cost", summary: "Lockups may strand capital if a higher-EV TGE catalyst opens elsewhere." },
+    baseRisk: {
+      code: "STRATEGY_AND_PEG_RISK",
+      severity: "medium",
+      label: "Underlying Strategy & Stablecoin Peg Exposure",
+      mitigation: "Inspect underlying collateral backing and cap exposure to unbacked or locked vaults.",
+    },
+    steps: (c) => [
+      { title: `Audit Vault Backing & Fee Structure on ${c.chain}`, action: `Select ${c.name}'s highest-liquidity vault on ${c.chain} (TVL ${c.tvlText}) with transparent yield sources.`, targetMetric: "Liquid vault with clear redemption terms", estimatedTimeMin: 10, categoryTag: "diligence" },
+      { title: "Establish Sticky Time-Weighted Deposit", action: "Deposit core capital and avoid churning in/out so time-weighted point accruals compound uninterrupted.", targetMetric: "Continuous deposit >= 45 days", estimatedTimeMin: 10, categoryTag: "deposit" },
+      { title: "Stack Partner Ecosystem Multipliers", action: "Check whether receipt tokens can be paired on integrated DEXs or money markets for dual points.", targetMetric: "Active secondary integration if net APY positive", estimatedTimeMin: 12, categoryTag: "multiplier" },
+      { title: "Roll Maturing Epochs Cleanly", action: "Re-allocate before pool maturity dates so idle capital does not lose point accrual velocity.", targetMetric: "Zero idle gap across epoch rollovers", estimatedTimeMin: 8, categoryTag: "retention" },
     ],
   },
   prediction: {
-    key: "prediction",
-    title: "High-Turnover Market Making & Liquidity Farm",
-    difficulty: "medium",
-    sybilNote: "Trade genuinely diverse markets with realistic hold periods; avoid opposing-side self-matching across wallets.",
-    steps: ({ name, chain, gas, bridge }) => [
-      { order: 1, action: `Fund ${name} trading wallet on ${chain}`, detail: `${bridge} with USDC collateral to trade spot prediction markets cleanly.`, targetMetric: "Collateral deposited", cadence: "One-time setup", estimatedGasUsd: gas * 2, priority: "core" },
-      { order: 2, action: "Place resting limit orders near mid-price", detail: `Quote two-sided or near-spread limit orders on liquid ${name} markets to earn liquidity rewards and volume credit.`, targetMetric: ">= 15 distinct markets traded", cadence: "Weekly", estimatedGasUsd: gas * 4, priority: "core" },
-      { order: 3, action: "Build consistent active weeks & PnL hygiene", detail: `Hold positions through resolution on high-conviction or near-certain short-dated markets to show organic user behavior.`, targetMetric: "6+ active weeks", cadence: "Weekly", estimatedGasUsd: gas * 3, priority: "multiplier" },
-      { order: 4, action: "Claim resolutions & track leaderboard rank", detail: `Redeem winning shares promptly and recycle liquidity into new event categories (crypto, macro, sports).`, targetMetric: "3+ market categories", cadence: "Bi-weekly", estimatedGasUsd: gas, priority: "optional" },
+    strategyName: "Two-Sided Liquidity & Liquid Market Volume",
+    difficulty: "Medium",
+    sybilSensitivity: "High",
+    frequency: "2 sessions/week",
+    minActiveWeeks: 8,
+    txPerWeek: 4,
+    gasMult: 0.7,
+    tierAlloc: [
+      "100% high-liquidity binary markets with tight spreads",
+      "70% resting maker limit orders, 30% directional/hedged OI",
+      "60% multi-market maker quotes, 40% high-conviction OI positions",
     ],
-    risks: [
-      { level: "high", category: "Binary Outcome & Resolution", summary: "Disputed oracle resolutions and binary swings can cause sudden losses; keep position sizes small per market." },
-      { level: "medium", category: "Geo / Compliance Gating", summary: "Some prediction venues restrict TGE claims by jurisdiction; verify eligibility rules early." },
+    baseRisk: {
+      code: "BINARY_EVENT_LOSS",
+      severity: "high",
+      label: "Binary Resolution Loss & Wash-Trade Disqualification",
+      mitigation: "Avoid illiquid long-tail markets and never self-match across wallets.",
+    },
+    steps: (c) => [
+      { title: `Fund Trading Wallet on ${c.chain}`, action: `Deposit USDC onto ${c.name} on ${c.chain} and focus strictly on deep markets with <2% bid-ask spreads.`, targetMetric: "Funded active trader profile", estimatedTimeMin: 8, categoryTag: "setup" },
+      { title: "Post Resting Maker Limit Orders", action: "Capture spread and liquidity rewards by placing passive bids/asks near midpoint rather than crossing wide spreads.", targetMetric: "Weekly maker fill volume + tight spread uptime", estimatedTimeMin: 15, categoryTag: "liquidity" },
+      { title: "Hold Open Interest Across Categories", action: "Maintain real positions across 5+ distinct markets (macro, crypto, sports) through resolution cycles.", targetMetric: ">= 10 distinct markets traded across 6+ weeks", estimatedTimeMin: 12, categoryTag: "diversity" },
+      { title: "Claim Winnings & Re-Deploy Organically", action: "Redeem settled shares promptly and maintain steady weekly active equity.", targetMetric: "Consistent weekly OI and volume", estimatedTimeMin: 6, categoryTag: "retention" },
+    ],
+  },
+  launchpad: {
+    strategyName: "Fee-Generating Native App & Discovery Cadence",
+    difficulty: "Medium",
+    sybilSensitivity: "High",
+    frequency: "Weekly sessions",
+    minActiveWeeks: 8,
+    txPerWeek: 3,
+    gasMult: 0.8,
+    tierAlloc: [
+      "100% small capped-risk spot trades on high-liquidity launches",
+      "75% graduated-pool liquidity/swaps, 25% capped launch entries",
+      "70% fee-generating swaps & LP, 30% diversified primary participation",
+    ],
+    baseRisk: {
+      code: "TOKEN_RUG_VOLATILITY",
+      severity: "high",
+      label: "Extreme Launch Asset Volatility & Rug Exposure",
+      mitigation: "Size individual launch tickets at <=2% of bankroll and favor graduated liquid pools.",
+    },
+    steps: (c) => [
+      { title: `Use ${c.name} Native Interface Directly`, action: `Execute trades directly through ${c.name}'s official frontend on ${c.chain} so fee attribution credits your wallet.`, targetMetric: "Direct protocol fee contribution recorded", estimatedTimeMin: 8, categoryTag: "setup" },
+      { title: "Build Multi-Week Fee & Volume Footprint", action: "Trade liquid graduated pools with tight stop-losses to accumulate protocol fee share without chasing illiquid microcaps.", targetMetric: "$50+ cumulative protocol fees paid across 6+ weeks", estimatedTimeMin: 15, categoryTag: "volume" },
+      { title: "Engage Secondary Platform Modules", action: "Use staking, watchlist, or creator/referral utilities native to the app to widen eligibility criteria.", targetMetric: "2+ native features used", estimatedTimeMin: 8, categoryTag: "diversity" },
+      { title: "Preserve Capital with Strict Take-Profit Rules", action: "Sweep gains back to base currency weekly so airdrop upside is not erased by token drawdowns.", targetMetric: "Positive or flat realized PnL", estimatedTimeMin: 8, categoryTag: "risk" },
+    ],
+  },
+  wallet: {
+    strategyName: "In-Wallet Swap, Bridge & Multi-Chain Hygiene",
+    difficulty: "Low",
+    sybilSensitivity: "High",
+    frequency: "Weekly routine swap",
+    minActiveWeeks: 10,
+    txPerWeek: 2,
+    gasMult: 0.8,
+    tierAlloc: [
+      "100% routine L2 swaps ($50-$250 tickets)",
+      "80% weekly L2 swaps, 20% cross-chain bridge routing",
+      "70% high-ticket blue-chip swaps, 30% native staking/bridge",
+    ],
+    baseRisk: {
+      code: "FEE_DRAG_AND_SYBIL",
+      severity: "medium",
+      label: "Router Markup Fee Drag & Sybil Pruning",
+      mitigation: "Route swaps on low-fee L2s and consolidate activity onto 1-2 aged primary wallets.",
+    },
+    steps: (c) => [
+      { title: `Activate ${c.name} on an Aged Primary Address`, action: "Import or run a wallet with real prior mainnet/L2 history rather than spinning up fresh zero-history wallets.", targetMetric: "Aged wallet with real on-chain footprint", estimatedTimeMin: 8, categoryTag: "setup" },
+      { title: "Route Weekly Swaps via Native Aggregator", action: `Swap liquid pairs on ${c.chain} inside ${c.name}'s built-in swap module to generate direct fee attribution.`, targetMetric: "$2.5k+ cumulative in-wallet swap volume", estimatedTimeMin: 8, categoryTag: "volume" },
+      { title: "Use Built-In Bridge & Gas Features", action: "Execute at least 3 cross-chain bridges and use native gas/staking tools if available.", targetMetric: "3+ native wallet modules exercised", estimatedTimeMin: 10, categoryTag: "diversity" },
+      { title: "Claim Points & Maintain Monthly Streak", action: "Check in weekly to claim any loyalty points and keep active-month count uninterrupted.", targetMetric: "8+ active weeks / 3+ active months", estimatedTimeMin: 5, categoryTag: "retention" },
+    ],
+  },
+  chain: {
+    strategyName: "Canonical Bridge, Multi-dApp Diversity & Sticky TVL",
+    difficulty: "Medium",
+    sybilSensitivity: "High",
+    frequency: "Weekly 2-3 dApp txs",
+    minActiveWeeks: 12,
+    txPerWeek: 3,
+    gasMult: 0.9,
+    tierAlloc: [
+      "60% native lending/LP TVL, 40% weekly dApp exploration",
+      "70% core DeFi TVL across 2 protocols, 30% weekly multi-contract cadence",
+      "80% sticky blue-chip TVL across top 3 native protocols, 20% governance/NFTs",
+    ],
+    baseRisk: {
+      code: "STRICT_L2_SYBIL_CRITERIA",
+      severity: "high",
+      label: "Multi-Factor L2 Sybil & Minimum-Balance Cutoffs",
+      mitigation: "Bridge canonically once, hold real TVL (>=30d), and interact with 10+ distinct verified contracts.",
+    },
+    steps: (c) => [
+      { title: `Bridge via ${c.name} Canonical Bridge`, action: `Send an initial meaningful deposit directly through ${c.name}'s official bridge to lock in canonical-bridge eligibility.`, targetMetric: "1+ canonical bridge tx recorded", estimatedTimeMin: 12, categoryTag: "bridge" },
+      { title: "Anchor Sticky Native DeFi TVL", action: `Supply ETH or stablecoins into top-2 native DEX and lending protocols on ${c.name}.`, targetMetric: "Continuous native TVL held >= 45 days", estimatedTimeMin: 15, categoryTag: "tvl" },
+      { title: "Build Contract & Active-Month Diversity", action: "Interact weekly across swaps, lending, domains, and consumer apps to cross common 10-contract / 3-month thresholds.", targetMetric: "12+ unique contracts across >= 3 distinct months", estimatedTimeMin: 12, categoryTag: "diversity" },
+      { title: "Verify Identity / Ecosystem Quests", action: "Complete any official proof-of-humanity, passport, or ecosystem badge checks before snapshots close.", targetMetric: "Verified human / ecosystem badge status", estimatedTimeMin: 10, categoryTag: "identity" },
     ],
   },
   rwa: {
-    key: "rwa",
-    title: "Yield-Bearing RWA Collateral & Ecosystem Farm",
-    difficulty: "low",
-    sybilNote: "RWA protocols favor steady capital duration and verified DeFi composability over high-frequency wallet churn.",
-    steps: ({ name, chain, gas, bridge }) => [
-      { order: 1, action: `Check eligibility & fund USDC on ${chain}`, detail: `${bridge} and verify whether ${name} requires allowlisting or offers permissionless DeFi wrappers.`, targetMetric: "USDC ready on-chain", cadence: "One-time setup", estimatedGasUsd: gas * 2, priority: "core" },
-      { order: 2, action: `Mint or hold ${name}'s yield-bearing RWA asset`, detail: `Hold ${name}'s tokenized treasury/credit asset directly to earn baseline T-bill/credit yield while farming pre-TGE points.`, targetMetric: "Hold >= 60 days", cadence: "Hold", estimatedGasUsd: gas * 2, priority: "core" },
-      { order: 3, action: "Use RWA token as DeFi collateral or LP", detail: `Deploy the ${name} token into whitelisted stable pools or lending markets to stack real yield and points.`, targetMetric: "Active DeFi collateral", cadence: "Review monthly", estimatedGasUsd: gas * 2, priority: "multiplier" },
-      { order: 4, action: "Monitor redemption windows & mint caps", detail: `Track primary mint/redemption settlement cutoffs so liquidity remains accessible near TGE.`, targetMetric: "Redemption path verified", cadence: "Monthly", estimatedGasUsd: gas, priority: "optional" },
+    strategyName: "Institutional Yield Holding & DeFi Collateral Composability",
+    difficulty: "Low",
+    sybilSensitivity: "Low",
+    frequency: "Monthly check",
+    minActiveWeeks: 12,
+    txPerWeek: 1,
+    gasMult: 1.1,
+    tierAlloc: [
+      "100% permissionless RWA yield token hold on L2",
+      "70% permissionless RWA hold, 30% DeFi lending collateral",
+      "60% primary KYC mint/vault, 40% DeFi money-market integration",
     ],
-    risks: [
-      { level: "medium", category: "KYC & Geo Restrictions", summary: "Institutional RWA platforms may apply KYC or jurisdictional exclusions at token claim." },
-      { level: "low", category: "Custodian / Issuer Risk", summary: "Off-chain collateral relies on issuer legal structure and redemption liquidity." },
-    ],
-  },
-  consumer: {
-    key: "consumer",
-    title: "Early Adopter Engagement & On-Chain Streak Farm",
-    difficulty: "low",
-    sybilNote: "Maintain an aged wallet with natural tx diversity, social/profile completion, and multi-week streaks.",
-    steps: ({ name, chain, gas, bridge }) => [
-      { order: 1, action: `Set up profile & fund wallet on ${chain}`, detail: `${bridge} and register your main wallet profile on ${name}.`, targetMetric: "Verified active profile", cadence: "One-time setup", estimatedGasUsd: gas * 2, priority: "core" },
-      { order: 2, action: `Complete core on-chain actions on ${name}`, detail: `Execute primary product flows (mint, trade, stake, or deploy) on ${name} across separate calendar weeks.`, targetMetric: "4+ unique active weeks", cadence: "Weekly", estimatedGasUsd: gas * 4, priority: "core" },
-      { order: 3, action: "Unlock tiered milestones & community roles", detail: `Complete official quests, testnet-to-mainnet migrations, or creator/collector tiers tied to ${name}.`, targetMetric: "Top-quartile milestone tier", cadence: "Bi-weekly", estimatedGasUsd: gas * 2, priority: "multiplier" },
-      { order: 4, action: "Maintain organic retention through TGE window", detail: `Keep periodic on-chain touches after hitting milestones so activity does not look scripted.`, targetMetric: "Continuous monthly activity", cadence: "Monthly", estimatedGasUsd: gas, priority: "optional" },
-    ],
-    risks: [
-      { level: "medium", category: "Allocation Skew", summary: "Consumer and social drops can heavily weight top creators, NFT holders, or verified humans over pure tx count." },
-      { level: "low", category: "Points Dilution", summary: "Zero-capital campaigns attract heavy bot competition unless paired with on-chain spend or TVL." },
+    baseRisk: {
+      code: "KYC_AND_GEO_RESTRICTIONS",
+      severity: "medium",
+      label: "Geo-Blocking & KYC Airdrop Eligibility Limits",
+      mitigation: "Verify jurisdictional eligibility before committing large capital for token upside.",
+    },
+    steps: (c) => [
+      { title: `Acquire ${c.name} Yield Asset on ${c.chain}`, action: `Mint or swap into ${c.name}'s yield-bearing RWA token on ${c.chain} while confirming fee and redemption mechanics.`, targetMetric: "Active on-chain balance", estimatedTimeMin: 12, categoryTag: "setup" },
+      { title: "Deploy into Whitelisted DeFi Integrations", action: "Supply the RWA token as collateral or stable-pair LP to capture partner points on top of T-bill yield.", targetMetric: "Active DeFi multiplier >= 30 days", estimatedTimeMin: 12, categoryTag: "multiplier" },
+      { title: "Hold Through Quarterly Yield Cycles", action: "Maintain uninterrupted balance across quarterly snapshots with minimal churn.", targetMetric: "Continuous holding >= 60 days", estimatedTimeMin: 5, categoryTag: "retention" },
+      { title: "Review Compliance & Claim Readiness", action: "Track governance announcements and verify non-restricted claim pathway ahead of TGE.", targetMetric: "Confirmed eligibility status", estimatedTimeMin: 6, categoryTag: "compliance" },
     ],
   },
-  general: {
-    key: "general",
-    title: "Core Protocol Usage & Multi-Epoch Snapshot Farm",
-    difficulty: "medium",
-    sybilNote: "Focus on meaningful TVL duration, distinct active months, and multiple contract interactions from one clean main wallet.",
-    steps: ({ name, chain, gas, bridge }) => [
-      { order: 1, action: `Onboard funds to ${chain}`, detail: `${bridge} and bookmark verified ${name} app and contract addresses.`, targetMetric: "Wallet funded", cadence: "One-time setup", estimatedGasUsd: gas * 2, priority: "core" },
-      { order: 2, action: `Use ${name}'s flagship on-chain product`, detail: `Commit working capital to ${name}'s primary liquidity, staking, or settlement contract for sustained time-weighted credit.`, targetMetric: "Active position >= 30 days", cadence: "Hold & touch weekly", estimatedGasUsd: gas * 3, priority: "core" },
-      { order: 3, action: "Diversify across secondary features & chains", detail: `Interact with additional ${name} modules or deployments to strengthen power-user eligibility.`, targetMetric: "2+ features & 6+ active weeks", cadence: "Bi-weekly", estimatedGasUsd: gas * 3, priority: "multiplier" },
-      { order: 4, action: "Participate in governance & official campaigns", detail: `Join ${name} governance votes, feedback epochs, or ecosystem campaigns before TGE.`, targetMetric: "Community & governance proof", cadence: "Monthly", estimatedGasUsd: gas, priority: "optional" },
+  nft: {
+    strategyName: "Organic Bid Depth & Cross-Chain Collection Volume",
+    difficulty: "Medium",
+    sybilSensitivity: "High",
+    frequency: "Weekly bids & trades",
+    minActiveWeeks: 8,
+    txPerWeek: 3,
+    gasMult: 0.9,
+    tierAlloc: [
+      "100% low-fee L2/Solana liquid collection bids",
+      "70% collection-offer liquidity, 30% organic flips/swaps",
+      "60% blue-chip bid depth, 40% cross-chain marketplace volume",
     ],
-    risks: [
-      { level: "medium", category: "No Guaranteed Token", summary: "Some profitable DeFi teams delay TGE indefinitely or distribute tokens primarily to equity/ecosystem partners." },
-      { level: "medium", category: "Smart Contract", summary: "Verify audit reports and cap ERC-20 token approvals before scaling size." },
+    baseRisk: {
+      code: "FLOOR_ILLIQUIDITY",
+      severity: "high",
+      label: "NFT Floor Drawdowns & Bid Fill Adverse Selection",
+      mitigation: "Bid below floor on high-volume collections and cap single-collection exposure.",
+    },
+    steps: (c) => [
+      { title: `Place Tight Collection Offers on ${c.name}`, action: `Post active bids near floor on top-10 liquid collections on ${c.chain} to earn liquidity/maker loyalty.`, targetMetric: "Active bid uptime across >= 6 weeks", estimatedTimeMin: 12, categoryTag: "liquidity" },
+      { title: "Execute Genuine Multi-Collection Volume", action: "Buy and list across distinct liquid collections without ever trading between self-controlled wallets.", targetMetric: "5+ distinct collections traded", estimatedTimeMin: 12, categoryTag: "volume" },
+      { title: "Exercise Native Token Swap / Aggregator Tools", action: `Use any token swap or cross-chain checkout features built into ${c.name}.`, targetMetric: "Multi-feature platform usage", estimatedTimeMin: 8, categoryTag: "diversity" },
+      { title: "Keep Royalty & Listing Hygiene Clean", action: "Avoid rapid cancel-spamming; honor clean order fills to stay out of wash-trade filters.", targetMetric: "High organic quality score", estimatedTimeMin: 6, categoryTag: "hygiene" },
+    ],
+  },
+  generic: {
+    strategyName: "Core Liquidity Retention & Multi-Week Protocol Usage",
+    difficulty: "Medium",
+    sybilSensitivity: "Medium",
+    frequency: "Weekly interaction",
+    minActiveWeeks: 8,
+    txPerWeek: 2,
+    gasMult: 1.0,
+    tierAlloc: [
+      "100% core deposit + weekly native interaction",
+      "75% sticky protocol TVL, 25% active feature exploration",
+      "80% core capital deposit, 20% partner DeFi integrations",
+    ],
+    baseRisk: {
+      code: "EXECUTION_AND_TIMING",
+      severity: "medium",
+      label: "Uncertain Token Timeline & Opportunity Cost",
+      mitigation: "Prioritize deposits that earn real base yield so capital remains productive if TGE slips.",
+    },
+    steps: (c) => [
+      { title: `Onboard Clean Capital to ${c.chain}`, action: `Fund an established wallet on ${c.chain} and verify official ${c.name} app URLs and contract addresses.`, targetMetric: "Verified contract interaction", estimatedTimeMin: 8, categoryTag: "setup" },
+      { title: "Commit Core Sticky TVL", action: `Deposit capital into ${c.name}'s primary pool/vault (current TVL ${c.tvlText}) and hold through snapshot cycles.`, targetMetric: "Continuous deposit >= 45 days", estimatedTimeMin: 12, categoryTag: "tvl" },
+      { title: "Maintain Multi-Week Feature Cadence", action: `Interact with at least 2 core modules on ${c.name} weekly with organic sizing.`, targetMetric: "12+ txs across >= 6 distinct weeks", estimatedTimeMin: 10, categoryTag: "cadence" },
+      { title: "Capture Partner & Governance Signals", action: "Join official points trackers, guild/badge verifications, or testnet milestones if live.", targetMetric: "All eligibility checkpoints completed", estimatedTimeMin: 6, categoryTag: "retention" },
     ],
   },
 };
 
-function buildCapitalTiers(tvl: number, chain: ChainProfile, catKey: string): CapitalTier[] {
-  const isHighGas = chain.txGasUsd >= 1.5;
-  const starterMin = isHighGas ? 500 : 100;
-  const starterMax = isHighGas ? 2500 : 1000;
-  const activeMin = isHighGas ? 2500 : 1000;
-  const activeMax = tvl >= 250_000_000 ? 25000 : 15000;
-  const whaleMin = activeMax;
-  const whaleMax = tvl >= 500_000_000 ? 250000 : 100000;
+function norm(s?: string | null): string {
+  return (s ?? "").trim().toLowerCase();
+}
 
-  const isVolumeCat = catKey === "derivatives" || catKey === "dex" || catKey === "bridge" || catKey === "prediction";
+function fmtUsd(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return "$0";
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `$${(n / 1e3).toFixed(0)}K`;
+  return `$${Math.round(n)}`;
+}
 
+function pickChains(input: FarmProtocolInput): { primary: string; supported: string[] } {
+  const fromMap: Array<[string, number]> = [];
+  if (input.chainTvls) {
+    for (const [k, v] of Object.entries(input.chainTvls)) {
+      const low = k.toLowerCase();
+      if (low.includes("-") || low === "borrowed" || low === "staking" || low === "pool2" || low === "offers") {
+        continue;
+      }
+      if (typeof v === "number" && v > 0) fromMap.push([k, v]);
+    }
+  }
+  fromMap.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const rawList = [
+    ...fromMap.map(([k]) => k),
+    ...(input.chains ?? []),
+    ...(input.chain ? [input.chain] : []),
+  ].filter((c) => c && c !== "Multi-Chain");
+  const unique: string[] = [];
+  const seen = new Set<string>();
+  for (const c of rawList) {
+    const key = norm(c);
+    if (!seen.has(key)) {
+      seen.add(key);
+      unique.push(c);
+    }
+  }
+  const primary = unique[0] ?? "Ethereum";
+  return { primary, supported: unique.length ? unique.slice(0, 6) : [primary] };
+}
+
+export function classifyFarmCategory(category?: string | null, name?: string | null): FarmCategoryBucket {
+  const c = norm(category);
+  const n = norm(name);
+  if (c.includes("prediction") || n.includes("polymarket") || n.includes("kalshi")) return "prediction";
+  if (c.includes("perp") || c.includes("derivative") || c.includes("option") || c.includes("synthetics")) return "perps";
+  if (c.includes("dex") || c.includes("amm") || c.includes("liquidity manager")) return "dex";
+  if (c.includes("lending") || c.includes("cdp") || c.includes("borrow")) return "lending";
+  if (c.includes("restaking") || c.includes("liquid staking") || c.includes("staking")) return "staking";
+  if (c.includes("bridge") || c.includes("cross chain")) return "bridge";
+  if (c.includes("launchpad") || c.includes("telegram") || c.includes("trading app") || c.includes("bot")) return "launchpad";
+  if (c.includes("wallet") || n.includes("rabby") || n.includes("metamask")) return "wallet";
+  if (c.includes("rwa")) return "rwa";
+  if (c.includes("nft")) return "nft";
+  if (c.includes("chain") || c.includes("rollup") || c.includes("l2")) return "chain";
+  if (c.includes("yield") || c.includes("basis") || c.includes("farm") || c.includes("vault")) return "yield";
+  return "generic";
+}
+
+function findOverride(input: FarmProtocolInput): ProtocolOverride | undefined {
+  const slug = norm(input.slug);
+  const name = norm(input.name);
+  if (PROTOCOL_OVERRIDES[slug]) return PROTOCOL_OVERRIDES[slug];
+  for (const [k, v] of Object.entries(PROTOCOL_OVERRIDES)) {
+    if (slug.startsWith(`${k}-`) || name === k || name.startsWith(`${k} `)) return v;
+  }
+  return undefined;
+}
+
+function computeRiskFlags(
+  input: FarmProtocolInput,
+  archetype: ArchetypeTemplate,
+  primaryChain: string,
+): RiskFlag[] {
+  const flags: RiskFlag[] = [archetype.baseRisk];
+  const tvl = input.tvl ?? 0;
+  const ch7 = input.change_7d ?? 0;
+  const ch30 = input.change_1m ?? 0;
+  const audits = input.audits;
+  const isLowFee = LOW_FEE_CHAINS.has(norm(primaryChain));
+
+  if (tvl >= 500e6 || ch30 > 120) {
+    flags.push({
+      code: "FARMER_CROWDING",
+      severity: tvl >= 1.5e9 ? "high" : "medium",
+      label: "Heavy TVL Crowding & Point Dilution",
+      mitigation: "Focus on fee-generating or active LP tiers rather than passive whale-dominated pools.",
+    });
+  } else if (tvl > 0 && tvl < 15e6) {
+    flags.push({
+      code: "EARLY_STAGE_TVL",
+      severity: "high",
+      label: "Thin Liquidity & Early Smart-Contract Risk",
+      mitigation: "Cap allocation at <=5% of farming bankroll until TVL and audit depth mature.",
+    });
+  }
+
+  if (!isLowFee && norm(primaryChain) === "ethereum") {
+    flags.push({
+      code: "MAINNET_GAS_DRAG",
+      severity: "medium",
+      label: "Ethereum L1 Gas Drag on Small Wallets",
+      mitigation: "Batch interactions during <15 gwei windows or farm via supported L2 deployments.",
+    });
+  }
+
+  if (audits === 0 || audits === "0" || audits === null || audits === undefined || audits === "") {
+    flags.push({
+      code: "AUDIT_UNVERIFIED",
+      severity: "medium",
+      label: "No Verified Audit Count in Snapshot",
+      mitigation: "Verify recent independent audit reports and revoke unlimited token approvals after use.",
+    });
+  }
+
+  if (ch7 > 60 || ch7 < -35) {
+    flags.push({
+      code: "TVL_VOLATILITY",
+      severity: "low",
+      label: ch7 > 60 ? "Rapid Mercenary TVL Inflow Spike" : "Sharp 7d TVL Outflow",
+      mitigation: "Verify whether yield incentives or campaign changes triggered the abrupt capital shift.",
+    });
+  }
+
+  const order: Record<RiskSeverity, number> = { high: 0, medium: 1, low: 2 };
+  const dedup = new Map<string, RiskFlag>();
+  for (const f of flags) if (!dedup.has(f.code)) dedup.set(f.code, f);
+  return [...dedup.values()].sort((a, b) => order[a.severity] - order[b.severity]).slice(0, 4);
+}
+
+function buildCapitalTiers(
+  archetype: ArchetypeTemplate,
+  primaryChain: string,
+  impliedAirdropUsd: number,
+  tvl: number,
+): CapitalTierPlan[] {
+  const lowFee = LOW_FEE_CHAINS.has(norm(primaryChain));
+  const baseGas = lowFee ? 3 : 28;
+  const starterGas = Math.max(1, Math.round(baseGas * archetype.gasMult));
+  const coreGas = Math.max(2, Math.round(baseGas * archetype.gasMult * 1.6));
+  const whaleGas = Math.max(4, Math.round(baseGas * archetype.gasMult * 2.5));
+  const poolNote = impliedAirdropUsd > 0 ? `Est. pool ${fmtUsd(impliedAirdropUsd)}` : "Uncapped upside";
+  const dilution = tvl > 500e6 ? "high TVL competition" : tvl > 50e6 ? "balanced TVL competition" : "early low-dilution window";
   return [
     {
-      tier: "starter",
-      label: "Starter / Eligibility",
-      minUsd: starterMin,
-      maxUsd: starterMax,
-      strategy: isVolumeCat
-        ? `Prioritize weekly active-streak count, feature breadth, and low-slippage volume on ${chain.name} while keeping fees under 2% of principal.`
-        : `Focus on minimum threshold TVL duration (45+ days) on ${chain.name} and zero-cost governance/quest multipliers.`,
-      estimatedYieldNote: isHighGas
-        ? "Batch transactions on weekends; gas drag is material below $500."
-        : "Targets baseline eligibility tier with minimal fee overhead.",
+      tier: "Starter",
+      rangeUsd: "$250 - $1,000",
+      allocation: archetype.tierAlloc[0],
+      estGasMonthlyUsd: starterGas,
+      expectedShareNote: `Targets base eligibility & anti-sybil floor (${dilution}).`,
     },
     {
-      tier: "active",
-      label: "Active / Top-Decile",
-      minUsd: activeMin,
-      maxUsd: activeMax,
-      strategy: isVolumeCat
-        ? `Combine steady weekly volume with a 30% passive LP/vault anchor on ${chain.name} to qualify for both volume and TVL buckets.`
-        : `Split capital across flagship deposit + 1 partner DeFi multiplier (LP or safe correlated borrow) to target top-10% leaderboard rank.`,
-      estimatedYieldNote: "Optimal risk-adjusted EV sweet spot for most pre-TGE drops.",
+      tier: "Core",
+      rangeUsd: "$2,500 - $15,000",
+      allocation: archetype.tierAlloc[1],
+      estGasMonthlyUsd: coreGas,
+      expectedShareNote: `Optimal risk-adjusted tier for top-10% wallet rank (${poolNote}).`,
     },
     {
-      tier: "whale",
-      label: "Whale / Size-Weighted",
-      minUsd: whaleMin,
-      maxUsd: whaleMax,
-      strategy: tvl >= 250_000_000
-        ? `Scale into audited blue-chip pools or vaults to capture linear TVL-weighted points while hedging directional asset exposure.`
-        : `Cap allocation below 1% of protocol TVL to manage smart-contract concentration while securing top-1% points rank.`,
-      estimatedYieldNote: "Watch for linear vs tiered airdrop caps; avoid over-concentrating past diminishing-return tiers.",
+      tier: "Whale",
+      rangeUsd: "$25,000+",
+      allocation: archetype.tierAlloc[2],
+      estGasMonthlyUsd: whaleGas,
+      expectedShareNote: `Captures TVL/volume leaderboard weight with fee-yield cushion (${poolNote}).`,
     },
   ];
 }
 
-function buildCatalystTags(input: FarmProtocolInput, chain: ChainProfile, catKey: string): string[] {
-  const tags: string[] = [];
-  const tvl = Number(input.tvl ?? 0);
-  const fdv = Number(input.impliedFdv ?? input.impliedValue ?? 0);
-  const change7d = typeof input.change_7d === "number" ? input.change_7d : null;
-  const change1m = typeof input.change_1m === "number" ? input.change_1m : null;
-  const desc = (input.description ?? "").toLowerCase();
-  const chainCount = (input.chains ?? []).length;
-
-  if (input.isWatchlist) tags.push("Watchlist Priority");
-  if (fdv >= 1_000_000_000) tags.push("Unicorn FDV Potential");
-  else if (fdv >= 250_000_000) tags.push("Mid-Cap TGE Target");
-  if (tvl >= 500_000_000) tags.push("Deep TVL Moat");
-  else if (tvl > 0 && tvl < 50_000_000) tags.push("Early-Stage Low Dilution");
-  if (change7d !== null && change7d >= 15) tags.push("TVL Breakout (+7d)");
-  else if (change1m !== null && change1m >= 35) tags.push("30d Inflow Surge");
-  if ((input.fundingUsd ?? 0) >= 15_000_000) tags.push("VC-Backed");
-  if (chainCount >= 4) tags.push("Multi-Chain Scale");
-  if (chain.txGasUsd <= 0.1) tags.push("Low-Gas Friendly");
-  if (/point|season|xp|reward|epoch|airdrop/.test(desc)) tags.push("Points Meta Signal");
-  if (catKey === "derivatives") tags.push("Perp Volume Meta");
-  if (catKey === "restaking") tags.push("Restaking Composability");
-  if (catKey === "rwa") tags.push("RWA Institutional Yield");
-  if (tags.length === 0) tags.push("Pre-TGE Organic Usage");
-
-  return tags.slice(0, 5);
-}
-
-function buildDynamicRisks(input: FarmProtocolInput, chain: ChainProfile, baseRisks: RiskNote[]): RiskNote[] {
-  const risks: RiskNote[] = [...baseRisks];
-  const tvl = Number(input.tvl ?? 0);
-  const change1m = typeof input.change_1m === "number" ? input.change_1m : null;
-
-  if (tvl > 0 && tvl < 15_000_000) {
-    risks.push({
-      level: "high",
-      category: "Early TVL & Audit Maturity",
-      summary: `Sub-$15M TVL signals earlier battle-testing; size positions conservatively and verify active audits.`,
-    });
-  } else if (tvl >= 1_000_000_000) {
-    risks.push({
-      level: "medium",
-      category: "Whale Dilution",
-      summary: `Billion-dollar TVL means linear point allocations favor larger wallets; combine duration with activity multipliers.`,
-    });
-  }
-
-  if (chain.txGasUsd >= 1.5) {
-    risks.push({
-      level: "medium",
-      category: "Gas Fee Drag",
-      summary: `Operating on ${chain.name} incurs higher gas per tx (~$${chain.txGasUsd.toFixed(2)}); avoid micro-deposits or frequent compounding.`,
-    });
-  }
-
-  if (change1m !== null && change1m <= -25) {
-    risks.push({
-      level: "medium",
-      category: "TVL Outflow Momentum",
-      summary: `30-day TVL declined ${Math.abs(change1m).toFixed(1)}%; check whether incentives rotated or an unlock/migration is underway.`,
-    });
-  }
-
-  return risks.slice(0, 4);
-}
-
-function inferTimeHorizon(tvl: number, fdv: number, launchWindow?: string): string {
-  if (launchWindow && launchWindow.trim()) return launchWindow.trim();
-  if (tvl >= 500_000_000 || fdv >= 1_000_000_000) return "1-4 months (Near-Term TGE Candidate)";
-  if (tvl >= 75_000_000 || fdv >= 200_000_000) return "2-6 months (Mid-Term TGE Window)";
-  return "3-9 months (Early Positioning Horizon)";
+function buildCatalysts(input: FarmProtocolInput, override?: ProtocolOverride): string[] {
+  const out: string[] = [];
+  if (override?.catalyst) out.push(override.catalyst);
+  const tvl = input.tvl ?? 0;
+  const fees = input.fees24h ?? 0;
+  const ch30 = input.change_1m ?? 0;
+  if (fees >= 50_000) out.push(`Strong organic fee engine (${fmtUsd(fees * 365)} annualized run-rate)`);
+  if (tvl >= 100e6) out.push(`Deep institutional-grade TVL base (${fmtUsd(tvl)})`);
+  if (ch30 >= 25) out.push(`Accelerating 30d capital inflow (+${ch30.toFixed(0)}%)`);
+  if ((input.chains?.length ?? 0) >= 3) out.push(`Multi-chain footprint across ${input.chains?.length} networks`);
+  if (out.length === 0) out.push("Tokenless market positioning with open early-adopter distribution window");
+  return out.slice(0, 3);
 }
 
 export function buildFarmPlan(input: FarmProtocolInput): FarmPlan {
-  const name = input.name?.trim() || "Protocol";
-  const recommendedChain = selectBestChain(input.chains, input.chain);
-  const chainProfile = getChainProfile(recommendedChain);
-  const catKey = normalizeCategoryKey(input.category, input.description);
-  const playbook = PLAYBOOKS[catKey] ?? PLAYBOOKS.general;
+  const bucket = classifyFarmCategory(input.category, input.name);
+  const archetype = ARCHETYPES[bucket];
+  const override = findOverride(input);
+  const { primary, supported } = pickChains(input);
+  const altChain = supported[1] ?? (norm(primary) === "arbitrum" ? "Base" : "Arbitrum");
+  const tvl = Math.max(0, input.tvl ?? 0);
+  const impliedFdv = Math.max(0, input.impliedFdv ?? 0);
+  const impliedAirdrop = Math.max(0, input.impliedAirdropUsd ?? 0);
 
-  const tvl = Number(input.tvl ?? 0);
-  const fdv = Number(input.impliedFdv ?? input.impliedValue ?? 0);
-  const steps = playbook.steps({
-    name,
-    chain: chainProfile.name,
-    gas: Number(chainProfile.txGasUsd.toFixed(2)),
-    bridge: chainProfile.bridgeHint,
-  });
+  const ctx: PlaybookCtx = { name: input.name, chain: primary, tvlText: fmtUsd(tvl), altChain };
+  const rawSteps = archetype.steps(ctx);
+  const mergedSteps = override ? [override.firstStep, ...rawSteps.slice(1)] : rawSteps;
+  const steps: FarmStep[] = mergedSteps.map((s, idx) => ({ order: idx + 1, ...s }));
 
-  const estimatedSetupCostUsd = Number(
-    steps.reduce((acc, s) => acc + s.estimatedGasUsd, 0).toFixed(2)
-  );
-  const capitalTiers = buildCapitalTiers(tvl, chainProfile, catKey);
-  const catalystTags = buildCatalystTags(input, chainProfile, catKey);
-  const riskNotes = buildDynamicRisks(input, chainProfile, playbook.risks);
-  const timeHorizon = inferTimeHorizon(tvl, fdv, input.launchWindow);
+  const lowFee = LOW_FEE_CHAINS.has(norm(primary));
+  const diffBase = archetype.difficulty === "High" ? 72 : archetype.difficulty === "Medium" ? 50 : 30;
+  const effortScore = Math.min(95, Math.max(20, diffBase + (lowFee ? 0 : 10) + archetype.txPerWeek * 3));
 
-  const summary =
-    `Farm ${name} on ${chainProfile.name} using a ${playbook.title.toLowerCase()} approach: ` +
-    `prioritize ${steps[1]?.action.toLowerCase() ?? "core on-chain usage"} with ` +
-    `~$${estimatedSetupCostUsd.toFixed(2)} est. cycle gas and ${timeHorizon.toLowerCase()}.`;
+  const snapshotWindow =
+    override?.snapshotWindow ??
+    (tvl >= 250e6 || (input.fees24h ?? 0) >= 100_000
+      ? "Near-to-mid term TGE window (3-6 months)"
+      : tvl >= 30e6
+        ? "Mid-term accumulation window (6-9 months)"
+        : "Early positioning window (6-12+ months)");
+
+  const riskFlags = computeRiskFlags(input, archetype, primary);
+  const capitalTiers = buildCapitalTiers(archetype, primary, impliedAirdrop, tvl);
+  const airdropCatalysts = buildCatalysts(input, override);
+  const strategyName = override?.strategyName ?? archetype.strategyName;
+
+  const fdvClause = impliedFdv > 0 ? ` against an implied ${fmtUsd(impliedFdv)} FDV` : "";
+  const summary = `${strategyName} on ${primary}: sustain ${archetype.frequency.toLowerCase()} for ${archetype.minActiveWeeks}+ weeks to capture ${input.name} launch upside${fdvClause}.`;
 
   return {
-    strategyTitle: playbook.title,
-    difficulty: playbook.difficulty,
-    timeHorizon,
-    recommendedChain: chainProfile.name,
-    sybilDefenseNote: playbook.sybilNote,
-    estimatedSetupCostUsd,
-    steps,
+    archetype: bucket,
+    strategyName,
+    difficulty: archetype.difficulty,
+    effortScore,
+    sybilSensitivity: archetype.sybilSensitivity,
+    primaryChain: primary,
+    supportedChains: supported,
+    cadence: {
+      frequency: archetype.frequency,
+      minActiveWeeks: archetype.minActiveWeeks,
+      recommendedTxPerWeek: archetype.txPerWeek,
+      snapshotWindow,
+    },
     capitalTiers,
-    catalystTags,
-    riskNotes,
+    steps,
+    riskFlags,
+    airdropCatalysts,
     summary,
   };
 }
 
-export const generateFarmPlan = buildFarmPlan;
-
-export function formatFarmPlanMarkdown(plan: FarmPlan, protocolName: string): string {
-  const stepLines = plan.steps.map(
-    (s) => `${s.order}. **${s.action}** (${s.priority}, ${s.cadence}) — ${s.detail} Target: ${s.targetMetric}.`
-  );
-  const riskLines = plan.riskNotes.map(
-    (r) => `- [${r.level.toUpperCase()}] **${r.category}**: ${r.summary}`
-  );
-  return [
-    `### ${protocolName} — ${plan.strategyTitle}`,
-    `Chain: **${plan.recommendedChain}** | Difficulty: **${plan.difficulty}** | Horizon: **${plan.timeHorizon}**`,
-    `Catalysts: ${plan.catalystTags.join(", ")}`,
-    "",
-    ...stepLines,
-    "",
-    `Sybil Hygiene: ${plan.sybilDefenseNote}`,
-    "",
-    ...riskLines,
-  ].join("\n");
+export function formatFarmSummaryLine(plan: FarmPlan): string {
+  const highRisks = plan.riskFlags.filter((r) => r.severity === "high").length;
+  return `${plan.strategyName} · ${plan.primaryChain} · ${plan.difficulty} effort (${plan.cadence.minActiveWeeks}w+) · ${highRisks} high-risk flag${highRisks === 1 ? "" : "s"}`;
 }
