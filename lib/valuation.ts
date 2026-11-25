@@ -1,678 +1,598 @@
-export interface ProtocolSnapshot {
-  id?: string | number;
+export interface PeerProtocolInput {
+  id?: string;
   name: string;
   slug: string;
-  symbol?: string | null;
-  category?: string | null;
-  chains?: readonly string[] | null;
-  chainTvls?: Readonly<Record<string, number>> | null;
-  tvl?: number | null;
-  change_1d?: number | null;
-  change_7d?: number | null;
-  change_1m?: number | null;
+  category?: string;
+  tvl?: number;
   mcap?: number | null;
   fdv?: number | null;
-  gecko_id?: string | null;
   fees24h?: number | null;
   fees7d?: number | null;
   fees30d?: number | null;
-  fees1y?: number | null;
-  annualizedFees?: number | null;
   revenue24h?: number | null;
+  revenue7d?: number | null;
   revenue30d?: number | null;
-  annualizedRevenue?: number | null;
   volume24h?: number | null;
-  volume30d?: number | null;
-  annualizedVolume?: number | null;
-  totalRaised?: number | null;
-  audits?: string | number | null;
-  audit_links?: readonly string[] | null;
-  listedAt?: number | null;
-  oracles?: readonly string[] | null;
-  url?: string | null;
-  twitter?: string | null;
-  description?: string | null;
-  parentProtocol?: string | null;
+  symbol?: string | null;
+  gecko_id?: string | null;
 }
 
-export interface PeerReference {
-  slug: string;
-  name: string;
-  symbol: string;
-  tvl: number;
-  fdv: number;
-  fdvToTvl: number;
-  fdvToFees: number | null;
+export interface ValuationInput extends PeerProtocolInput {
+  chains?: string[];
+  chain?: string;
+  chainTvls?: Record<string, number>;
+  change_1d?: number | null;
+  change_7d?: number | null;
+  change_1m?: number | null;
+  totalRaised?: number | null;
+  backers?: string[];
+  investors?: string[];
+  audits?: number | string | null;
+  audit_links?: string[];
+  listedAt?: number | null;
+  pointsProgram?: boolean;
+  isWatchlist?: boolean;
+  watchlist?: boolean;
+  url?: string;
+  twitter?: string;
+  description?: string;
 }
 
 export interface CategoryBenchmark {
   category: string;
   peerCount: number;
-  feePeerCount: number;
-  fdvToTvl: number;
+  fdvToTvlMedian: number;
   fdvToTvlP25: number;
   fdvToTvlP75: number;
-  fdvToFees: number;
-  fdvToFeesP25: number;
-  fdvToFeesP75: number;
-  tvlWeight: number;
+  fdvToRevMedian: number;
+  fdvToFeesMedian: number;
+  defaultAirdropPct: number;
   typicalFloatPct: number;
-  typicalAirdropPct: number;
-  topPeers: PeerReference[];
-}
-
-export interface BenchmarkSet {
-  global: CategoryBenchmark;
-  byCategory: Record<string, CategoryBenchmark>;
-  tokenizedPeerCount: number;
+  source: "empirical" | "blended" | "prior";
 }
 
 export interface ValuationBreakdown {
-  tvlAnchorUsd: number;
-  feeAnchorUsd: number;
-  volumeAnchorUsd: number;
-  fundingAnchorUsd: number;
-  baseFdvUsd: number;
-  peerFdvToTvl: number;
-  peerFdvToFees: number;
-  scaleFactor: number;
+  tvlImpliedFdv: number;
+  revenueImpliedFdv: number | null;
+  feesImpliedFdv: number | null;
+  raiseImpliedFdv: number | null;
+  weights: { tvl: number; revenue: number; fees: number; raise: number };
+  appliedFdvToTvl: number;
+  sizeElasticity: number;
   momentumMultiplier: number;
-  chainBreadthMultiplier: number;
-  capitalEfficiencyMultiplier: number;
-  maturityMultiplier: number;
-  totalMultiplier: number;
-  effectiveChainCount: number;
-  activeChainCount: number;
-  annualizedFeesUsd: number;
-  annualizedRevenueUsd: number;
-  annualizedVolumeUsd: number;
+  multichainPremium: number;
+}
+
+export interface AirdropEstimate {
+  allocationPct: number;
+  poolUsdLow: number;
+  poolUsdBase: number;
+  poolUsdHigh: number;
+  usdPerTvlDollar: number;
+  impliedAprPct: number;
+  efficiencyTier: "High" | "Medium" | "Crowded" | "Activity-Based";
+}
+
+export interface ConvictionBreakdown {
+  total: number;
+  grade: "S" | "A" | "B" | "C" | "D";
+  launchHorizon: "Imminent (0-3m)" | "Near-Term (3-6m)" | "Mid-Term (6-12m)" | "Early (12m+)";
+  scaleScore: number;
+  revenueQualityScore: number;
+  momentumScore: number;
+  tgeCatalystScore: number;
+  airdropEdgeScore: number;
 }
 
 export interface ProtocolValuation {
   slug: string;
   name: string;
   category: string;
+  normalizedCategory: string;
   tvl: number;
-  impliedFdv: number;
+  annualizedFees: number;
+  annualizedRevenue: number;
+  totalRaisedUsd: number;
   fdvLow: number;
+  fdvBase: number;
   fdvHigh: number;
-  impliedInitialMcap: number;
-  estimatedAirdropPoolUsd: number;
-  impliedAirdropYieldPct: number;
-  launchScore: number;
-  fundamentalScore: number;
-  momentumScore: number;
-  chainBreadthScore: number;
-  confidence: "high" | "medium" | "low";
-  confidenceScore: number;
+  impliedLaunchMcap: number;
+  initialFloatPct: number;
+  benchmark: CategoryBenchmark;
   breakdown: ValuationBreakdown;
-  comparablePeers: PeerReference[];
-  valuationDrivers: string[];
-}
-
-export interface RankedProtocolValuation extends ProtocolValuation {
+  airdrop: AirdropEstimate;
+  conviction: ConvictionBreakdown;
+  radarScore: number;
   rank: number;
   percentile: number;
+  isWatchlist: boolean;
 }
 
-export interface ValuationOptions {
-  sortBy?: "impliedFdv" | "launchScore";
-  benchmarks?: BenchmarkSet;
+export interface ValuationBatchResult {
+  benchmarks: Record<string, CategoryBenchmark>;
+  ranked: ProtocolValuation[];
+  summary: {
+    candidateCount: number;
+    totalImpliedFdvUsd: number;
+    totalAirdropPoolUsd: number;
+    medianImpliedFdvUsd: number;
+    peerPoolCount: number;
+    categoryCount: number;
+  };
 }
 
-interface CategoryPrior {
+interface SectorPrior {
   fdvToTvl: number;
+  fdvToRev: number;
   fdvToFees: number;
-  tvlWeight: number;
-  floatPct: number;
   airdropPct: number;
+  floatPct: number;
 }
 
-const DEFAULT_PRIOR: CategoryPrior = {
-  fdvToTvl: 0.72,
-  fdvToFees: 16.0,
-  tvlWeight: 0.62,
-  floatPct: 0.16,
-  airdropPct: 0.07,
+const SECTOR_PRIORS: Record<string, SectorPrior> = {
+  "Dexes": { fdvToTvl: 1.65, fdvToRev: 18, fdvToFees: 7.5, airdropPct: 0.085, floatPct: 0.16 },
+  "Derivatives": { fdvToTvl: 3.8, fdvToRev: 16, fdvToFees: 9.0, airdropPct: 0.10, floatPct: 0.15 },
+  "Lending": { fdvToTvl: 0.42, fdvToRev: 20, fdvToFees: 8.5, airdropPct: 0.075, floatPct: 0.17 },
+  "Liquid Staking": { fdvToTvl: 0.24, fdvToRev: 22, fdvToFees: 9.5, airdropPct: 0.065, floatPct: 0.18 },
+  "Restaking": { fdvToTvl: 0.52, fdvToRev: 26, fdvToFees: 12.0, airdropPct: 0.08, floatPct: 0.14 },
+  "CDP": { fdvToTvl: 0.55, fdvToRev: 19, fdvToFees: 10.0, airdropPct: 0.07, floatPct: 0.16 },
+  "Yield": { fdvToTvl: 0.72, fdvToRev: 17, fdvToFees: 8.0, airdropPct: 0.08, floatPct: 0.16 },
+  "Bridge": { fdvToTvl: 2.6, fdvToRev: 24, fdvToFees: 11.0, airdropPct: 0.095, floatPct: 0.15 },
+  "RWA": { fdvToTvl: 0.68, fdvToRev: 25, fdvToFees: 14.0, airdropPct: 0.055, floatPct: 0.14 },
+  "Prediction Market": { fdvToTvl: 5.2, fdvToRev: 28, fdvToFees: 14.0, airdropPct: 0.09, floatPct: 0.14 },
+  "Options": { fdvToTvl: 2.9, fdvToRev: 20, fdvToFees: 10.5, airdropPct: 0.085, floatPct: 0.15 },
+  "Launchpad": { fdvToTvl: 3.1, fdvToRev: 15, fdvToFees: 8.0, airdropPct: 0.08, floatPct: 0.17 },
+  "Default": { fdvToTvl: 1.15, fdvToRev: 20, fdvToFees: 9.5, airdropPct: 0.075, floatPct: 0.16 },
 };
 
-const CATEGORY_PRIORS: Record<string, CategoryPrior> = {
-  Dexes: { fdvToTvl: 0.85, fdvToFees: 14.5, tvlWeight: 0.48, floatPct: 0.18, airdropPct: 0.08 },
-  Derivatives: { fdvToTvl: 2.15, fdvToFees: 16.5, tvlWeight: 0.35, floatPct: 0.18, airdropPct: 0.09 },
-  Lending: { fdvToTvl: 0.42, fdvToFees: 17.0, tvlWeight: 0.65, floatPct: 0.17, airdropPct: 0.065 },
-  "Liquid Staking": { fdvToTvl: 0.28, fdvToFees: 15.0, tvlWeight: 0.70, floatPct: 0.16, airdropPct: 0.06 },
-  "Liquid Restaking": { fdvToTvl: 0.34, fdvToFees: 18.0, tvlWeight: 0.72, floatPct: 0.15, airdropPct: 0.075 },
-  Restaking: { fdvToTvl: 0.48, fdvToFees: 22.0, tvlWeight: 0.75, floatPct: 0.14, airdropPct: 0.08 },
-  Bridge: { fdvToTvl: 1.45, fdvToFees: 20.0, tvlWeight: 0.45, floatPct: 0.16, airdropPct: 0.085 },
-  "Cross Chain": { fdvToTvl: 1.35, fdvToFees: 19.0, tvlWeight: 0.48, floatPct: 0.16, airdropPct: 0.08 },
-  CDP: { fdvToTvl: 0.45, fdvToFees: 15.5, tvlWeight: 0.68, floatPct: 0.16, airdropPct: 0.06 },
-  Yield: { fdvToTvl: 0.50, fdvToFees: 14.0, tvlWeight: 0.62, floatPct: 0.17, airdropPct: 0.07 },
-  "Yield Aggregator": { fdvToTvl: 0.48, fdvToFees: 13.5, tvlWeight: 0.60, floatPct: 0.18, airdropPct: 0.07 },
-  RWA: { fdvToTvl: 0.65, fdvToFees: 22.0, tvlWeight: 0.74, floatPct: 0.14, airdropPct: 0.055 },
-  "Prediction Market": { fdvToTvl: 2.60, fdvToFees: 20.0, tvlWeight: 0.42, floatPct: 0.16, airdropPct: 0.08 },
-  Launchpad: { fdvToTvl: 1.80, fdvToFees: 13.0, tvlWeight: 0.38, floatPct: 0.19, airdropPct: 0.07 },
-  "DEX Aggregator": { fdvToTvl: 2.20, fdvToFees: 15.0, tvlWeight: 0.30, floatPct: 0.18, airdropPct: 0.08 },
-  Options: { fdvToTvl: 1.65, fdvToFees: 16.0, tvlWeight: 0.45, floatPct: 0.17, airdropPct: 0.075 },
-  "Basis Trading": { fdvToTvl: 0.62, fdvToFees: 16.0, tvlWeight: 0.64, floatPct: 0.15, airdropPct: 0.075 },
-  Staking: { fdvToTvl: 0.40, fdvToFees: 15.0, tvlWeight: 0.68, floatPct: 0.16, airdropPct: 0.06 },
-  Privacy: { fdvToTvl: 1.30, fdvToFees: 18.0, tvlWeight: 0.65, floatPct: 0.15, airdropPct: 0.07 },
-  Payments: { fdvToTvl: 1.50, fdvToFees: 19.0, tvlWeight: 0.50, floatPct: 0.16, airdropPct: 0.065 },
-  Synthetics: { fdvToTvl: 0.90, fdvToFees: 16.0, tvlWeight: 0.58, floatPct: 0.17, airdropPct: 0.07 },
-  NFT: { fdvToTvl: 1.40, fdvToFees: 14.0, tvlWeight: 0.45, floatPct: 0.18, airdropPct: 0.08 },
-  "NFT Marketplace": { fdvToTvl: 1.85, fdvToFees: 14.0, tvlWeight: 0.40, floatPct: 0.18, airdropPct: 0.085 },
-  Gaming: { fdvToTvl: 1.75, fdvToFees: 18.0, tvlWeight: 0.55, floatPct: 0.16, airdropPct: 0.075 },
-  Farm: { fdvToTvl: 0.35, fdvToFees: 10.0, tvlWeight: 0.64, floatPct: 0.20, airdropPct: 0.07 },
-  "Algo-Stables": { fdvToTvl: 0.55, fdvToFees: 15.0, tvlWeight: 0.66, floatPct: 0.16, airdropPct: 0.06 },
-  Insurance: { fdvToTvl: 0.70, fdvToFees: 18.0, tvlWeight: 0.65, floatPct: 0.17, airdropPct: 0.06 },
-  "Onchain Capital Allocator": { fdvToTvl: 0.52, fdvToFees: 15.0, tvlWeight: 0.64, floatPct: 0.16, airdropPct: 0.065 },
-};
+const REFERENCE_EPOCH_SEC = 1767225600; // 2026-01-01T00:00:00Z deterministic baseline
 
-const CATEGORY_ALIASES: Record<string, string> = {
-  dexs: "Dexes",
-  dex: "Dexes",
-  "spot dex": "Dexes",
-  perps: "Derivatives",
-  "perpetuals": "Derivatives",
-  bridges: "Bridge",
-  "cross chain bridge": "Bridge",
-  "money market": "Lending",
-  "liquid-staking": "Liquid Staking",
-  "liquid-restaking": "Liquid Restaking",
-  "prediction markets": "Prediction Market",
-};
-
-const ECOSYSTEM_TIER: Record<string, number> = {
-  ethereum: 1.0,
-  solana: 0.95,
-  arbitrum: 0.85,
-  base: 0.85,
-  hyperliquid: 0.85,
-  bsc: 0.75,
-  sui: 0.75,
-  optimism: 0.7,
-  avalanche: 0.65,
-  polygon: 0.65,
-  berachain: 0.65,
-  aptos: 0.6,
-  ton: 0.6,
-  sonic: 0.55,
-  monad: 0.65,
-  scroll: 0.5,
-  linea: 0.55,
-  starknet: 0.55,
-  zksync: 0.55,
-  "zksync era": 0.55,
-  mantle: 0.5,
-  tron: 0.55,
-  bitcoin: 0.8,
-};
-
-const EXCLUDED_CHAIN_KEYS = new Set([
-  "staking",
-  "borrowed",
-  "pool2",
-  "treasury",
-  "vesting",
-  "offers",
-  "doublecounted",
-  "liquidstaking",
-  "dcandlsoverlap",
-]);
-
-function safeNum(value: unknown, fallback = 0): number {
-  const n = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(n) ? n : fallback;
+function safeNum(v: unknown): number {
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : 0;
+  return Number.isFinite(n) ? n : 0;
 }
 
-function clamp(value: number, min: number, max: number): number {
-  return value < min ? min : value > max ? max : value;
+function clamp(v: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, v));
 }
 
-function round2(value: number): number {
-  return Math.round(value * 100) / 100;
+function round(v: number, digits = 2): number {
+  const f = 10 ** digits;
+  return Math.round(v * f) / f;
 }
 
-function quantile(sorted: readonly number[], q: number): number {
+function quantile(sorted: number[], q: number): number {
   if (sorted.length === 0) return 0;
   if (sorted.length === 1) return sorted[0];
   const pos = clamp(q, 0, 1) * (sorted.length - 1);
   const lo = Math.floor(pos);
   const hi = Math.ceil(pos);
-  if (lo === hi) return sorted[lo];
-  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+  const weight = pos - lo;
+  return sorted[lo] * (1 - weight) + sorted[hi] * weight;
 }
 
-export function normalizeCategory(raw: string | null | undefined): string {
-  const trimmed = (raw ?? "").trim();
-  if (!trimmed) return "DeFi";
-  const alias = CATEGORY_ALIASES[trimmed.toLowerCase()];
-  if (alias) return alias;
-  for (const key of Object.keys(CATEGORY_PRIORS)) {
-    if (key.toLowerCase() === trimmed.toLowerCase()) return key;
-  }
-  return trimmed;
+export function normalizeCategory(raw?: string): string {
+  const c = (raw ?? "").trim().toLowerCase();
+  if (!c) return "Default";
+  if (c.includes("dex") || c.includes("amm") || c.includes("swap") || c.includes("liquidity")) return "Dexes";
+  if (c.includes("perp") || c.includes("deriv") || c.includes("futures") || c.includes("synthet")) return "Derivatives";
+  if (c.includes("lend") || c.includes("borrow") || c.includes("money market") || c.includes("credit")) return "Lending";
+  if (c.includes("liquid restak") || c.includes("restak")) return "Restaking";
+  if (c.includes("liquid stak") || c === "staking" || c.includes("staking pool")) return "Liquid Staking";
+  if (c.includes("cdp") || c.includes("stablecoin")) return "CDP";
+  if (c.includes("yield") || c.includes("farm") || c.includes("vault") || c.includes("basis")) return "Yield";
+  if (c.includes("bridge") || c.includes("cross chain") || c.includes("interop")) return "Bridge";
+  if (c.includes("rwa") || c.includes("real world") || c.includes("treasur")) return "RWA";
+  if (c.includes("predict")) return "Prediction Market";
+  if (c.includes("option")) return "Options";
+  if (c.includes("launch") || c.includes("ido")) return "Launchpad";
+  return "Default";
 }
 
-function isRealChainKey(key: string): boolean {
-  const lower = key.toLowerCase().trim();
-  if (!lower || EXCLUDED_CHAIN_KEYS.has(lower)) return false;
-  if (
-    lower.endsWith("-borrowed") ||
-    lower.endsWith("-staking") ||
-    lower.endsWith("-pool2") ||
-    lower.endsWith("-treasury") ||
-    lower.endsWith("-vesting") ||
-    lower.endsWith("-offers")
-  ) {
-    return false;
-  }
-  return true;
+function normalizeRaisedUsd(raw?: number | null): number {
+  const n = safeNum(raw);
+  if (n <= 0) return 0;
+  return n < 50_000 ? n * 1_000_000 : n;
 }
 
-export function extractAnnualizedFees(p: ProtocolSnapshot): number {
-  const ann = safeNum(p.annualizedFees, 0);
-  if (ann > 0) return ann;
-  const f1y = safeNum(p.fees1y, 0);
-  if (f1y > 0) return f1y;
-  const f30 = safeNum(p.fees30d, 0);
-  if (f30 > 0) return f30 * 12;
-  const f7 = safeNum(p.fees7d, 0);
-  if (f7 > 0) return f7 * 52;
-  const f24 = safeNum(p.fees24h, 0);
-  if (f24 > 0) return f24 * 365;
-  return extractAnnualizedRevenue(p);
-}
-
-export function extractAnnualizedRevenue(p: ProtocolSnapshot): number {
-  const ann = safeNum(p.annualizedRevenue, 0);
-  if (ann > 0) return ann;
-  const r30 = safeNum(p.revenue30d, 0);
-  if (r30 > 0) return r30 * 12;
-  const r24 = safeNum(p.revenue24h, 0);
-  if (r24 > 0) return r24 * 365;
+function annualizeFlow(d30?: number | null, d7?: number | null, d24?: number | null): number {
+  const m30 = safeNum(d30);
+  if (m30 > 0) return m30 * (365 / 30);
+  const w7 = safeNum(d7);
+  if (w7 > 0) return w7 * (365 / 7);
+  const h24 = safeNum(d24);
+  if (h24 > 0) return h24 * 365;
   return 0;
 }
 
-export function extractAnnualizedVolume(p: ProtocolSnapshot): number {
-  const ann = safeNum(p.annualizedVolume, 0);
-  if (ann > 0) return ann;
-  const v30 = safeNum(p.volume30d, 0);
-  if (v30 > 0) return v30 * 12;
-  const v24 = safeNum(p.volume24h, 0);
-  if (v24 > 0) return v24 * 365;
+function extractPeerFdv(p: PeerProtocolInput): number {
+  const fdv = safeNum(p.fdv);
+  if (fdv > 1_000_000) return fdv;
+  const mcap = safeNum(p.mcap);
+  if (mcap > 1_000_000) return mcap * 1.45;
   return 0;
 }
 
-function analyzeChainFootprint(p: ProtocolSnapshot): {
-  activeChains: string[];
-  effectiveChains: number;
-  ecosystemBonus: number;
+export function calibratePeerBenchmarks(peers: PeerProtocolInput[]): {
+  benchmarks: Record<string, CategoryBenchmark>;
+  peerPoolCount: number;
 } {
-  const tvlMap: Array<[string, number]> = [];
-  if (p.chainTvls && typeof p.chainTvls === "object") {
-    for (const [k, v] of Object.entries(p.chainTvls)) {
-      const val = safeNum(v, 0);
-      if (val > 10_000 && isRealChainKey(k)) {
-        tvlMap.push([k, val]);
-      }
-    }
-  }
+  const buckets = new Map<string, { tvlMults: number[]; revMults: number[]; feeMults: number[] }>();
+  let peerPoolCount = 0;
 
-  let activeChains: string[];
-  let effectiveChains = 1;
+  for (const p of peers) {
+    const fdv = extractPeerFdv(p);
+    const tvl = safeNum(p.tvl);
+    if (fdv <= 1_000_000) continue;
 
-  if (tvlMap.length > 0) {
-    tvlMap.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-    const total = tvlMap.reduce((sum, [, val]) => sum + val, 0);
-    activeChains = tvlMap.map(([name]) => name);
-    if (total > 0) {
-      let hhi = 0;
-      for (const [, val] of tvlMap) {
-        const share = val / total;
-        hhi += share * share;
-      }
-      effectiveChains = hhi > 0 ? 1 / hhi : 1;
-    }
-  } else {
-    const rawChains = Array.isArray(p.chains) ? p.chains : [];
-    activeChains = [...new Set(rawChains.filter((c) => typeof c === "string" && isRealChainKey(c)))];
-    activeChains.sort((a, b) => a.localeCompare(b));
-    effectiveChains = Math.max(1, activeChains.length * 0.72);
-  }
+    const annRev = annualizeFlow(p.revenue30d, p.revenue7d, p.revenue24h);
+    const annFees = annualizeFlow(p.fees30d, p.fees7d, p.fees24h);
+    if (tvl < 250_000 && annRev < 100_000 && annFees < 250_000) continue;
 
-  let tierScore = 0;
-  for (const chain of activeChains) {
-    const w = ECOSYSTEM_TIER[chain.toLowerCase()];
-    if (w) tierScore += w;
-  }
-  const ecosystemBonus = clamp(tierScore * 0.032, 0, 0.085);
-  return {
-    activeChains,
-    effectiveChains: round2(Math.max(1, effectiveChains)),
-    ecosystemBonus,
-  };
-}
-
-function getPeerMarketFdv(p: ProtocolSnapshot): number {
-  const fdv = safeNum(p.fdv, 0);
-  if (fdv > 0) return fdv;
-  const mcap = safeNum(p.mcap, 0);
-  return mcap > 0 ? mcap : 0;
-}
-
-function summarizeCategory(
-  category: string,
-  peers: readonly PeerReference[],
-  globalFallback: CategoryPrior
-): CategoryBenchmark {
-  const prior = CATEGORY_PRIORS[category] ?? globalFallback;
-  const tvlMults = peers.map((x) => x.fdvToTvl).filter((x) => x > 0).sort((a, b) => a - b);
-  const feeMults = peers
-    .map((x) => x.fdvToFees)
-    .filter((x): x is number => x !== null && x > 0)
-    .sort((a, b) => a - b);
-
-  const empTvl = tvlMults.length > 0 ? quantile(tvlMults, 0.5) : prior.fdvToTvl;
-  const tvlShrink = tvlMults.length / (tvlMults.length + 4);
-  const blendedTvl = tvlShrink * empTvl + (1 - tvlShrink) * prior.fdvToTvl;
-
-  const empFee = feeMults.length > 0 ? quantile(feeMults, 0.5) : prior.fdvToFees;
-  const feeShrink = feeMults.length / (feeMults.length + 4);
-  const blendedFee = feeShrink * empFee + (1 - feeShrink) * prior.fdvToFees;
-
-  const sortedPeers = [...peers].sort(
-    (a, b) => b.fdv - a.fdv || b.tvl - a.tvl || a.slug.localeCompare(b.slug)
-  );
-
-  return {
-    category,
-    peerCount: tvlMults.length,
-    feePeerCount: feeMults.length,
-    fdvToTvl: round2(clamp(blendedTvl, 0.15, 6.0)),
-    fdvToTvlP25: round2(tvlMults.length >= 3 ? quantile(tvlMults, 0.25) : blendedTvl * 0.65),
-    fdvToTvlP75: round2(tvlMults.length >= 3 ? quantile(tvlMults, 0.75) : blendedTvl * 1.45),
-    fdvToFees: round2(clamp(blendedFee, 4.0, 45.0)),
-    fdvToFeesP25: round2(feeMults.length >= 3 ? quantile(feeMults, 0.25) : blendedFee * 0.65),
-    fdvToFeesP75: round2(feeMults.length >= 3 ? quantile(feeMults, 0.75) : blendedFee * 1.45),
-    tvlWeight: prior.tvlWeight,
-    typicalFloatPct: prior.floatPct,
-    typicalAirdropPct: prior.airdropPct,
-    topPeers: sortedPeers.slice(0, 5),
-  };
-}
-
-export function buildCategoryBenchmarks(allProtocols: readonly ProtocolSnapshot[]): BenchmarkSet {
-  const allPeers: PeerReference[] = [];
-  const grouped = new Map<string, PeerReference[]>();
-
-  for (const p of allProtocols) {
-    const fdv = getPeerMarketFdv(p);
-    const tvl = safeNum(p.tvl, 0);
-    if (fdv < 2_000_000 || tvl < 500_000) continue;
-
-    const fdvToTvl = fdv / tvl;
-    if (fdvToTvl < 0.04 || fdvToTvl > 25) continue;
-
-    const annFees = extractAnnualizedFees(p);
-    let fdvToFees: number | null = null;
-    if (annFees >= 50_000) {
-      const ratio = fdv / annFees;
-      if (ratio >= 1.5 && ratio <= 120) {
-        fdvToFees = round2(ratio);
-      }
-    }
-
+    peerPoolCount += 1;
     const cat = normalizeCategory(p.category);
-    const ref: PeerReference = {
-      slug: p.slug,
-      name: p.name,
-      symbol: (p.symbol ?? "").trim(),
-      tvl: Math.round(tvl),
-      fdv: Math.round(fdv),
-      fdvToTvl: round2(fdvToTvl),
-      fdvToFees,
+    let bucket = buckets.get(cat);
+    if (!bucket) {
+      bucket = { tvlMults: [], revMults: [], feeMults: [] };
+      buckets.set(cat, bucket);
+    }
+
+    if (tvl >= 250_000) {
+      const m = fdv / tvl;
+      if (m >= 0.03 && m <= 35) bucket.tvlMults.push(m);
+    }
+    if (annRev >= 100_000) {
+      const m = fdv / annRev;
+      if (m >= 1 && m <= 180) bucket.revMults.push(m);
+    }
+    if (annFees >= 250_000) {
+      const m = fdv / annFees;
+      if (m >= 0.5 && m <= 120) bucket.feeMults.push(m);
+    }
+  }
+
+  const allTvl: number[] = [];
+  const allRev: number[] = [];
+  const allFee: number[] = [];
+  for (const b of buckets.values()) {
+    allTvl.push(...b.tvlMults);
+    allRev.push(...b.revMults);
+    allFee.push(...b.feeMults);
+  }
+  allTvl.sort((a, b) => a - b);
+  allRev.sort((a, b) => a - b);
+  allFee.sort((a, b) => a - b);
+
+  const benchmarks: Record<string, CategoryBenchmark> = {};
+  const categories = Object.keys(SECTOR_PRIORS);
+
+  for (const cat of categories) {
+    const prior = SECTOR_PRIORS[cat];
+    const b = buckets.get(cat) ?? { tvlMults: [], revMults: [], feeMults: [] };
+    const tvlSorted = [...b.tvlMults].sort((x, y) => x - y);
+    const revSorted = [...b.revMults].sort((x, y) => x - y);
+    const feeSorted = [...b.feeMults].sort((x, y) => x - y);
+
+    const n = tvlSorted.length;
+    const shrink = n / (n + 4);
+    const empMed = n > 0 ? quantile(tvlSorted, 0.5) : prior.fdvToTvl;
+    const empP25 = n >= 3 ? quantile(tvlSorted, 0.25) : empMed * 0.58;
+    const empP75 = n >= 3 ? quantile(tvlSorted, 0.75) : empMed * 1.65;
+
+    const fdvToTvlMedian = clamp(shrink * empMed + (1 - shrink) * prior.fdvToTvl, 0.12, 12);
+    const fdvToTvlP25 = clamp(shrink * empP25 + (1 - shrink) * (prior.fdvToTvl * 0.55), 0.06, fdvToTvlMedian * 0.9);
+    const fdvToTvlP75 = clamp(shrink * empP75 + (1 - shrink) * (prior.fdvToTvl * 1.65), fdvToTvlMedian * 1.15, 22);
+
+    const revShrink = revSorted.length / (revSorted.length + 3);
+    const revBase = revSorted.length > 0 ? quantile(revSorted, 0.5) : allRev.length > 0 ? quantile(allRev, 0.5) : prior.fdvToRev;
+    const fdvToRevMedian = clamp(revShrink * revBase + (1 - revShrink) * prior.fdvToRev, 4, 80);
+
+    const feeShrink = feeSorted.length / (feeSorted.length + 3);
+    const feeBase = feeSorted.length > 0 ? quantile(feeSorted, 0.5) : allFee.length > 0 ? quantile(allFee, 0.5) : prior.fdvToFees;
+    const fdvToFeesMedian = clamp(feeShrink * feeBase + (1 - feeShrink) * prior.fdvToFees, 2, 45);
+
+    const source: CategoryBenchmark["source"] = n >= 6 ? "empirical" : n >= 1 ? "blended" : "prior";
+
+    benchmarks[cat] = {
+      category: cat,
+      peerCount: n,
+      fdvToTvlMedian: round(fdvToTvlMedian, 3),
+      fdvToTvlP25: round(fdvToTvlP25, 3),
+      fdvToTvlP75: round(fdvToTvlP75, 3),
+      fdvToRevMedian: round(fdvToRevMedian, 2),
+      fdvToFeesMedian: round(fdvToFeesMedian, 2),
+      defaultAirdropPct: prior.airdropPct,
+      typicalFloatPct: prior.floatPct,
+      source,
     };
-
-    allPeers.push(ref);
-    const bucket = grouped.get(cat);
-    if (bucket) bucket.push(ref);
-    else grouped.set(cat, [ref]);
   }
 
-  const global = summarizeCategory("Global", allPeers, DEFAULT_PRIOR);
-  const globalPrior: CategoryPrior = {
-    fdvToTvl: global.fdvToTvl,
-    fdvToFees: global.fdvToFees,
-    tvlWeight: DEFAULT_PRIOR.tvlWeight,
-    floatPct: DEFAULT_PRIOR.floatPct,
-    airdropPct: DEFAULT_PRIOR.airdropPct,
-  };
-
-  const byCategory: Record<string, CategoryBenchmark> = {};
-  const categoryNames = new Set([...Object.keys(CATEGORY_PRIORS), ...grouped.keys()]);
-  for (const cat of [...categoryNames].sort((a, b) => a.localeCompare(b))) {
-    byCategory[cat] = summarizeCategory(cat, grouped.get(cat) ?? [], globalPrior);
-  }
-
-  return {
-    global,
-    byCategory,
-    tokenizedPeerCount: allPeers.length,
-  };
+  return { benchmarks, peerPoolCount };
 }
 
-export function estimateProtocolValuation(
-  protocol: ProtocolSnapshot,
-  benchmarks: BenchmarkSet
+function computeSizeElasticity(tvl: number): number {
+  if (tvl <= 0) return 1.0;
+  const logRatio = Math.log10(Math.max(tvl, 100_000) / 100_000_000);
+  // Smooth diminishing multiple above $100M TVL, modest scarcity premium below $100M
+  return clamp(1 - 0.14 * logRatio, 0.55, 1.32);
+}
+
+function computeMomentumMultiplier(change7d: number, change30d: number): number {
+  const c7 = clamp(change7d, -60, 180);
+  const c30 = clamp(change30d, -75, 250);
+  const blended = 0.35 * c7 + 0.65 * c30;
+  return clamp(1 + blended / 360, 0.78, 1.35);
+}
+
+function computeMultichainPremium(chains: string[]): number {
+  const count = chains.length;
+  if (count <= 1) return 1.0;
+  return clamp(1 + 0.035 * Math.min(count - 1, 5), 1.0, 1.15);
+}
+
+export function valuateProtocol(
+  input: ValuationInput,
+  benchmarks: Record<string, CategoryBenchmark>,
+  asOfEpochSec = REFERENCE_EPOCH_SEC,
 ): ProtocolValuation {
-  const category = normalizeCategory(protocol.category);
-  const bench = benchmarks.byCategory[category] ?? benchmarks.global;
+  const normCat = normalizeCategory(input.category);
+  const bm = benchmarks[normCat] ?? benchmarks["Default"];
+  const tvl = Math.max(0, safeNum(input.tvl));
+  const annFees = annualizeFlow(input.fees30d, input.fees7d, input.fees24h);
+  const annRev = annualizeFlow(input.revenue30d, input.revenue7d, input.revenue24h);
+  const totalRaisedUsd = normalizeRaisedUsd(input.totalRaised);
+  const chains = Array.isArray(input.chains) && input.chains.length > 0
+    ? input.chains
+    : input.chain ? [input.chain] : [];
 
-  const tvl = Math.max(0, safeNum(protocol.tvl, 0));
-  const annFees = extractAnnualizedFees(protocol);
-  const annRev = extractAnnualizedRevenue(protocol);
-  const annVol = extractAnnualizedVolume(protocol);
-  const totalRaised = Math.max(0, safeNum(protocol.totalRaised, 0));
+  const change7d = safeNum(input.change_7d);
+  const change30d = safeNum(input.change_1m);
 
-  const scaleFactor =
-    tvl > 0 ? clamp(Math.pow(100_000_000 / Math.max(tvl, 5_000_000), 0.14), 0.56, 1.38) : 1.0;
+  const sizeElasticity = round(computeSizeElasticity(tvl), 3);
+  const momentumMultiplier = round(computeMomentumMultiplier(change7d, change30d), 3);
+  const multichainPremium = round(computeMultichainPremium(chains), 3);
+  const appliedMult = bm.fdvToTvlMedian * sizeElasticity * momentumMultiplier * multichainPremium;
 
-  const tvlAnchor = tvl > 0 ? tvl * bench.fdvToTvl * scaleFactor : 0;
-  const feeAnchor = annFees > 0 ? annFees * bench.fdvToFees : 0;
-  const volAnchor =
-    annVol > 0 ? clamp(annVol * 0.012, 0, Math.max(tvlAnchor * 3.5, 4_000_000_000)) : 0;
-  const fundingAnchor = totalRaised > 0 ? totalRaised * 5.0 : 0;
+  const tvlImpliedFdv = tvl > 0 ? tvl * appliedMult : 0;
+  const revenueImpliedFdv = annRev >= 50_000 ? annRev * bm.fdvToRevMedian * momentumMultiplier : null;
+  const feesImpliedFdv = annFees >= 100_000 ? annFees * bm.fdvToFeesMedian * momentumMultiplier : null;
+  const raiseImpliedFdv = totalRaisedUsd >= 500_000 ? totalRaisedUsd * 6.2 * Math.sqrt(momentumMultiplier) : null;
 
-  let weightedSum = 0;
-  let weightTotal = 0;
+  // Dynamic pillar weights depending on available fundamental signals
+  let wTvl = tvl > 0 ? 0.55 : 0;
+  let wRev = revenueImpliedFdv !== null ? 0.30 : 0;
+  let wFees = feesImpliedFdv !== null ? (revenueImpliedFdv !== null ? 0.10 : 0.28) : 0;
+  let wRaise = raiseImpliedFdv !== null ? 0.18 : 0;
+  const wSum = wTvl + wRev + wFees + wRaise;
 
-  if (tvlAnchor > 0) {
-    const w = feeAnchor > 0 ? bench.tvlWeight : 0.85;
-    weightedSum += tvlAnchor * w;
-    weightTotal += w;
-  }
-  if (feeAnchor > 0) {
-    const w = tvlAnchor > 0 ? 1 - bench.tvlWeight : 0.85;
-    weightedSum += feeAnchor * w;
-    weightTotal += w;
-  }
-  if (volAnchor > 0) {
-    const w = 0.15;
-    weightedSum += volAnchor * w;
-    weightTotal += w;
-  }
-  if (fundingAnchor > 0) {
-    const w = tvlAnchor > 0 || feeAnchor > 0 ? 0.12 : 0.75;
-    weightedSum += fundingAnchor * w;
-    weightTotal += w;
-  }
-
-  const baseFdv = weightTotal > 0 ? weightedSum / weightTotal : 0;
-
-  const c7 = clamp(safeNum(protocol.change_7d, 0), -75, 250);
-  const c30 = clamp(safeNum(protocol.change_1m, 0), -85, 500);
-  const blendedGrowth = 0.35 * c7 + 0.65 * c30;
-  const momentumMultiplier = clamp(1 + Math.tanh(blendedGrowth / 65) * 0.3, 0.78, 1.35);
-
-  const footprint = analyzeChainFootprint(protocol);
-  const multiChainLift = Math.min(0.18, Math.log2(footprint.effectiveChains) * 0.065);
-  const chainBreadthMultiplier = clamp(0.95 + multiChainLift + footprint.ecosystemBonus, 0.95, 1.24);
-
-  let capitalEfficiencyMultiplier = 1.0;
-  if (annFees > 0 && tvl > 100_000) {
-    const feeYield = annFees / tvl;
-    const effShift = Math.tanh(Math.log10(Math.max(feeYield, 0.001) / 0.025)) * 0.14;
-    capitalEfficiencyMultiplier = clamp(1 + effShift, 0.9, 1.18);
+  let fdvBase = 0;
+  if (wSum > 0) {
+    wTvl /= wSum;
+    wRev /= wSum;
+    wFees /= wSum;
+    wRaise /= wSum;
+    fdvBase =
+      wTvl * tvlImpliedFdv +
+      wRev * (revenueImpliedFdv ?? 0) +
+      wFees * (feesImpliedFdv ?? 0) +
+      wRaise * (raiseImpliedFdv ?? 0);
+  } else {
+    fdvBase = 15_000_000;
   }
 
-  const auditCount =
-    (Array.isArray(protocol.audit_links) ? protocol.audit_links.length : 0) +
-    (safeNum(protocol.audits, 0) > 0 ? 1 : 0);
-  const maturityMultiplier = clamp(
-    0.96 + (auditCount > 0 ? 0.05 : 0) + (tvl >= 50_000_000 ? 0.05 : tvl >= 10_000_000 ? 0.02 : 0),
-    0.95,
-    1.08
+  // Enforce reasonable bounds relative to peer band and funding floor
+  const minFloor = Math.max(5_000_000, totalRaisedUsd * 2.2);
+  fdvBase = Math.max(fdvBase, minFloor);
+
+  const lowRatio = clamp(bm.fdvToTvlP25 / bm.fdvToTvlMedian, 0.45, 0.78);
+  const highRatio = clamp(bm.fdvToTvlP75 / bm.fdvToTvlMedian, 1.28, 2.05);
+  const fdvLow = round(fdvBase * lowRatio, 0);
+  const fdvHigh = round(fdvBase * highRatio, 0);
+  fdvBase = round(fdvBase, 0);
+
+  const initialFloatPct = round(
+    clamp(bm.typicalFloatPct - (totalRaisedUsd > 30_000_000 ? 0.02 : 0), 0.10, 0.25),
+    3,
+  );
+  const impliedLaunchMcap = round(fdvBase * initialFloatPct, 0);
+
+  // Airdrop economics
+  const hasPoints = Boolean(input.pointsProgram);
+  let airdropPct = bm.defaultAirdropPct;
+  if (hasPoints) airdropPct += 0.015;
+  if (totalRaisedUsd > 50_000_000) airdropPct -= 0.012;
+  if (tvl > 500_000_000) airdropPct -= 0.008;
+  airdropPct = round(clamp(airdropPct, 0.04, 0.14), 4);
+
+  const poolUsdBase = round(fdvBase * airdropPct, 0);
+  const poolUsdLow = round(fdvLow * clamp(airdropPct * 0.78, 0.03, 0.12), 0);
+  const poolUsdHigh = round(fdvHigh * clamp(airdropPct * 1.22, 0.05, 0.18), 0);
+  const usdPerTvlDollar = tvl >= 100_000 ? round(poolUsdBase / tvl, 4) : 0;
+
+  // Estimate farming window in months based on protocol maturity
+  const listedAt = safeNum(input.listedAt);
+  const ageDays = listedAt > 1_500_000_000 ? Math.max(30, (asOfEpochSec - listedAt) / 86400) : 240;
+  const estWindowMonths = hasPoints ? 4.5 : ageDays > 365 ? 5.5 : 7.5;
+  const rawApr = tvl >= 100_000 ? (poolUsdBase / tvl) * (12 / estWindowMonths) * 100 : 0;
+  const impliedAprPct = round(clamp(rawApr, 0, 220), 1);
+
+  const efficiencyTier: AirdropEstimate["efficiencyTier"] =
+    tvl < 2_000_000 && (annFees > 200_000 || safeNum(input.volume24h) > 500_000)
+      ? "Activity-Based"
+      : usdPerTvlDollar >= 0.09
+        ? "High"
+        : usdPerTvlDollar >= 0.035
+          ? "Medium"
+          : "Crowded";
+
+  // Conviction scoring (0-100 across 5 transparent pillars)
+  const scaleScore = round(
+    clamp((Math.log10(Math.max(tvl, 50_000)) - 4.7) / 4.8 * 75 + (Math.log10(Math.max(fdvBase, 5_000_000)) - 6.7) / 3.3 * 25, 8, 100),
+    1,
+  );
+  const feeYield = tvl > 0 ? annFees / tvl : 0;
+  const revenueQualityScore = round(
+    annRev > 0
+      ? clamp(42 + Math.log10(Math.max(annRev, 10_000)) * 7.5 + clamp(feeYield * 120, 0, 18), 25, 100)
+      : annFees > 0
+        ? clamp(32 + Math.log10(Math.max(annFees, 10_000)) * 6.5, 20, 88)
+        : 22,
+    1,
+  );
+  const momentumScore = round(
+    clamp(50 + clamp(change30d, -60, 140) * 0.32 + clamp(change7d, -40, 80) * 0.22 + Math.min(chains.length * 2.5, 10), 10, 100),
+    1,
   );
 
-  const totalMultiplier = clamp(
-    momentumMultiplier * chainBreadthMultiplier * capitalEfficiencyMultiplier * maturityMultiplier,
-    0.72,
-    1.62
-  );
-
-  const impliedFdv = baseFdv > 0 ? Math.max(1_000_000, Math.round(baseFdv * totalMultiplier)) : 0;
-
-  let confidenceScore = 30;
-  if (tvl >= 10_000_000) confidenceScore += 22;
-  else if (tvl >= 1_000_000) confidenceScore += 12;
-  if (annFees >= 100_000) confidenceScore += 20;
-  if (bench.peerCount >= 8) confidenceScore += 14;
-  else if (bench.peerCount >= 3) confidenceScore += 8;
-  if (auditCount > 0) confidenceScore += 7;
-  if (protocol.change_1m !== null && protocol.change_1m !== undefined) confidenceScore += 7;
-  confidenceScore = clamp(Math.round(confidenceScore), 15, 98);
-
-  const confidence: "high" | "medium" | "low" =
-    confidenceScore >= 72 ? "high" : confidenceScore >= 48 ? "medium" : "low";
-
-  const spread = confidence === "high" ? 0.28 : confidence === "medium" ? 0.36 : 0.45;
-  const fdvLow = Math.round(impliedFdv * (1 - spread));
-  const fdvHigh = Math.round(impliedFdv * (1 + spread * 1.35));
-  const impliedInitialMcap = Math.round(impliedFdv * bench.typicalFloatPct);
-  const estimatedAirdropPoolUsd = Math.round(impliedFdv * bench.typicalAirdropPct);
-  const impliedAirdropYieldPct =
-    tvl > 0 ? round2(clamp((estimatedAirdropPoolUsd / tvl) * 100, 0, 250)) : 0;
-
-  const valScore =
-    impliedFdv > 0 ? clamp(((Math.log10(impliedFdv) - 6.3) / (10.1 - 6.3)) * 100, 0, 100) : 0;
-  const tvlDepthScore = tvl > 0 ? clamp(((Math.log10(tvl) - 5.7) / (10.0 - 5.7)) * 100, 0, 100) : 0;
-  const feeQualityScore =
-    annFees > 0 ? clamp(((Math.log10(annFees) - 4.5) / (8.7 - 4.5)) * 100, 0, 100) : tvlDepthScore * 0.55;
-  const fundamentalScore = round2(
-    clamp(0.55 * tvlDepthScore + 0.35 * feeQualityScore + (auditCount > 0 ? 10 : 0), 0, 100)
-  );
-  const momentumScore = round2(clamp(50 + Math.tanh(blendedGrowth / 55) * 48, 2, 98));
-  const chainBreadthScore = round2(
+  const auditCount = Array.isArray(input.audit_links) && input.audit_links.length > 0
+    ? input.audit_links.length
+    : safeNum(input.audits);
+  const isWatchlist = Boolean(input.isWatchlist || input.watchlist);
+  const tgeCatalystScore = round(
     clamp(
-      22 + Math.log2(footprint.effectiveChains) * 24 + footprint.ecosystemBonus * 320,
-      10,
-      100
-    )
+      24 +
+        (hasPoints ? 26 : 0) +
+        (totalRaisedUsd >= 10_000_000 ? 22 : totalRaisedUsd >= 2_000_000 ? 12 : 0) +
+        (ageDays >= 270 && ageDays <= 900 ? 14 : ageDays > 900 ? 8 : 4) +
+        (auditCount > 0 ? 8 : 0) +
+        (isWatchlist ? 12 : 0),
+      15,
+      100,
+    ),
+    1,
   );
-  const launchScore = round2(
+  const airdropEdgeScore = round(
     clamp(
-      0.46 * valScore + 0.24 * fundamentalScore + 0.16 * momentumScore + 0.14 * chainBreadthScore,
-      0,
-      100
-    )
+      (Math.log10(Math.max(poolUsdBase, 500_000)) - 5.7) * 18 +
+        clamp(usdPerTvlDollar * 240, 0, 38) +
+        (efficiencyTier === "Activity-Based" ? 22 : 0),
+      12,
+      100,
+    ),
+    1,
   );
 
-  const valuationDrivers: string[] = [
-    `${category} peer benchmark: ${bench.fdvToTvl}x FDV/TVL (${bench.peerCount} tokenized peers)`,
-  ];
-  if (annFees > 0) {
-    valuationDrivers.push(
-      `Annualized fee run-rate $${Math.round(annFees).toLocaleString("en-US")} at ${bench.fdvToFees}x peer multiple`
-    );
-  }
-  if (blendedGrowth >= 15) {
-    valuationDrivers.push(`Strong TVL momentum (${round2(blendedGrowth)}% blended 7d/30d growth)`);
-  } else if (blendedGrowth <= -15) {
-    valuationDrivers.push(`TVL contraction discount (${round2(blendedGrowth)}% blended 7d/30d trend)`);
-  }
-  if (footprint.activeChains.length >= 3) {
-    valuationDrivers.push(
-      `Multi-chain footprint across ${footprint.activeChains.length} chains (${footprint.effectiveChains} effective)`
-    );
-  } else if (footprint.activeChains.length > 0) {
-    valuationDrivers.push(`Concentrated on ${footprint.activeChains.join(", ")}`);
-  }
+  const totalConviction = round(
+    0.25 * scaleScore +
+      0.20 * revenueQualityScore +
+      0.20 * momentumScore +
+      0.20 * tgeCatalystScore +
+      0.15 * airdropEdgeScore,
+    1,
+  );
+
+  const grade: ConvictionBreakdown["grade"] =
+    totalConviction >= 82 ? "S" : totalConviction >= 70 ? "A" : totalConviction >= 56 ? "B" : totalConviction >= 42 ? "C" : "D";
+
+  const launchHorizon: ConvictionBreakdown["launchHorizon"] =
+    hasPoints && (totalRaisedUsd >= 10_000_000 || ageDays >= 240)
+      ? "Imminent (0-3m)"
+      : tgeCatalystScore >= 65
+        ? "Near-Term (3-6m)"
+        : ageDays >= 180
+          ? "Mid-Term (6-12m)"
+          : "Early (12m+)";
+
+  // Composite radar ranking score: prioritizes launch value (FDV) weighted by conviction & catalyst readiness
+  const fdvNorm = clamp((Math.log10(Math.max(fdvBase, 5_000_000)) - 6.7) / 3.5 * 100, 0, 100);
+  const radarScore = round(0.58 * fdvNorm + 0.42 * totalConviction + (isWatchlist ? 3.5 : 0), 2);
 
   return {
-    slug: protocol.slug,
-    name: protocol.name,
-    category,
-    tvl: Math.round(tvl),
-    impliedFdv,
+    slug: input.slug,
+    name: input.name,
+    category: input.category ?? "Other",
+    normalizedCategory: normCat,
+    tvl: round(tvl, 0),
+    annualizedFees: round(annFees, 0),
+    annualizedRevenue: round(annRev, 0),
+    totalRaisedUsd: round(totalRaisedUsd, 0),
     fdvLow,
+    fdvBase,
     fdvHigh,
-    impliedInitialMcap,
-    estimatedAirdropPoolUsd,
-    impliedAirdropYieldPct,
-    launchScore,
-    fundamentalScore,
-    momentumScore,
-    chainBreadthScore,
-    confidence,
-    confidenceScore,
+    impliedLaunchMcap,
+    initialFloatPct,
+    benchmark: bm,
     breakdown: {
-      tvlAnchorUsd: Math.round(tvlAnchor),
-      feeAnchorUsd: Math.round(feeAnchor),
-      volumeAnchorUsd: Math.round(volAnchor),
-      fundingAnchorUsd: Math.round(fundingAnchor),
-      baseFdvUsd: Math.round(baseFdv),
-      peerFdvToTvl: bench.fdvToTvl,
-      peerFdvToFees: bench.fdvToFees,
-      scaleFactor: round2(scaleFactor),
-      momentumMultiplier: round2(momentumMultiplier),
-      chainBreadthMultiplier: round2(chainBreadthMultiplier),
-      capitalEfficiencyMultiplier: round2(capitalEfficiencyMultiplier),
-      maturityMultiplier: round2(maturityMultiplier),
-      totalMultiplier: round2(totalMultiplier),
-      effectiveChainCount: footprint.effectiveChains,
-      activeChainCount: footprint.activeChains.length,
-      annualizedFeesUsd: Math.round(annFees),
-      annualizedRevenueUsd: Math.round(annRev),
-      annualizedVolumeUsd: Math.round(annVol),
+      tvlImpliedFdv: round(tvlImpliedFdv, 0),
+      revenueImpliedFdv: revenueImpliedFdv !== null ? round(revenueImpliedFdv, 0) : null,
+      feesImpliedFdv: feesImpliedFdv !== null ? round(feesImpliedFdv, 0) : null,
+      raiseImpliedFdv: raiseImpliedFdv !== null ? round(raiseImpliedFdv, 0) : null,
+      weights: {
+        tvl: round(wTvl, 3),
+        revenue: round(wRev, 3),
+        fees: round(wFees, 3),
+        raise: round(wRaise, 3),
+      },
+      appliedFdvToTvl: round(appliedMult, 3),
+      sizeElasticity,
+      momentumMultiplier,
+      multichainPremium,
     },
-    comparablePeers: bench.topPeers,
-    valuationDrivers,
+    airdrop: {
+      allocationPct: airdropPct,
+      poolUsdLow,
+      poolUsdBase,
+      poolUsdHigh,
+      usdPerTvlDollar,
+      impliedAprPct,
+      efficiencyTier,
+    },
+    conviction: {
+      total: totalConviction,
+      grade,
+      launchHorizon,
+      scaleScore,
+      revenueQualityScore,
+      momentumScore,
+      tgeCatalystScore,
+      airdropEdgeScore,
+    },
+    radarScore,
+    rank: 0,
+    percentile: 0,
+    isWatchlist,
   };
 }
 
-export function rankProtocolsByValuation(
-  candidates: readonly ProtocolSnapshot[],
-  allProtocols: readonly ProtocolSnapshot[],
-  options: ValuationOptions = {}
-): RankedProtocolValuation[] {
-  const benchmarks = options.benchmarks ?? buildCategoryBenchmarks(allProtocols);
-  const sortBy = options.sortBy ?? "impliedFdv";
+export function rankCandidates(
+  candidates: ValuationInput[],
+  allProtocols: PeerProtocolInput[],
+  asOfEpochSec = REFERENCE_EPOCH_SEC,
+): ValuationBatchResult {
+  const { benchmarks, peerPoolCount } = calibratePeerBenchmarks(allProtocols);
+  const valued = candidates.map((c) => valuateProtocol(c, benchmarks, asOfEpochSec));
 
-  const evaluated = candidates.map((p) => estimateProtocolValuation(p, benchmarks));
-  evaluated.sort((a, b) => {
-    const primary =
-      sortBy === "launchScore" ? b.launchScore - a.launchScore : b.impliedFdv - a.impliedFdv;
-    if (primary !== 0) return primary;
-    if (b.impliedFdv !== a.impliedFdv) return b.impliedFdv - a.impliedFdv;
-    if (b.launchScore !== a.launchScore) return b.launchScore - a.launchScore;
+  valued.sort((a, b) => {
+    if (b.radarScore !== a.radarScore) return b.radarScore - a.radarScore;
+    if (b.fdvBase !== a.fdvBase) return b.fdvBase - a.fdvBase;
     if (b.tvl !== a.tvl) return b.tvl - a.tvl;
     return a.slug.localeCompare(b.slug);
   });
 
-  const total = evaluated.length;
-  return evaluated.map((item, idx) => ({
-    ...item,
-    rank: idx + 1,
-    percentile: total > 1 ? round2(((total - 1 - idx) / (total - 1)) * 100) : 100,
-  }));
+  const n = valued.length;
+  let totalFdv = 0;
+  let totalAirdrop = 0;
+  const fdvSorted: number[] = [];
+
+  for (let i = 0; i < n; i++) {
+    valued[i].rank = i + 1;
+    valued[i].percentile = n > 1 ? round((1 - i / (n - 1)) * 100, 1) : 100;
+    totalFdv += valued[i].fdvBase;
+    totalAirdrop += valued[i].airdrop.poolUsdBase;
+    fdvSorted.push(valued[i].fdvBase);
+  }
+  fdvSorted.sort((a, b) => a - b);
+
+  return {
+    benchmarks,
+    ranked: valued,
+    summary: {
+      candidateCount: n,
+      totalImpliedFdvUsd: round(totalFdv, 0),
+      totalAirdropPoolUsd: round(totalAirdrop, 0),
+      medianImpliedFdvUsd: round(quantile(fdvSorted, 0.5), 0),
+      peerPoolCount,
+      categoryCount: Object.keys(benchmarks).length,
+    },
+  };
 }
