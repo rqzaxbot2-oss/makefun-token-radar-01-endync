@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Token Launch Radar — Tokenless DeFi Valuation &amp; Farming Board</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b1220'/%3E%3Ccircle cx='16' cy='16' r='11' fill='none' stroke='%2322d3ee' stroke-width='1.5' opacity='0.45'/%3E%3Ccircle cx='16' cy='16' r='6' fill='none' stroke='%2322d3ee' stroke-width='1.5' opacity='0.75'/%3E%3Cpath d='M16 16 L24 8' stroke='%2334d399' stroke-width='2' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='16' r='2.2' fill='%2322d3ee'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app-shell" id="app-shell">
+    <header class="topbar" role="banner">
+      <div class="topbar-left">
+        <div class="brand">
+          <div class="brand-icon" aria-hidden="true">
+            <svg viewBox="0 0 36 36" width="32" height="32" fill="none">
+              <rect width="36" height="36" rx="9" fill="#0f172a" stroke="#1e293b" stroke-width="1.2" />
+              <circle cx="18" cy="18" r="12" stroke="#22d3ee" stroke-width="1.2" stroke-opacity="0.35" />
+              <circle cx="18" cy="18" r="7.5" stroke="#22d3ee" stroke-width="1.2" stroke-opacity="0.6" />
+              <path d="M18 18L26.5 9.5" stroke="#34d399" stroke-width="2" stroke-linecap="round" />
+              <circle cx="23.5" cy="12.5" r="2" fill="#34d399" />
+              <circle cx="18" cy="18" r="2.2" fill="#22d3ee" />
+            </svg>
+          </div>
+          <div class="brand-text">
+            <div class="brand-title-row">
+              <h1>Token Launch Radar</h1>
+              <span class="badge badge-live">OFFLINE SNAPSHOT</span>
+            </div>
+            <p class="brand-subtitle">Tokenless DeFi Valuation Model, Derivative Exclusion &amp; Airdrop Farming Playbooks</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="topbar-right">
+        <div class="meta-pills" id="snapshot-meta" aria-label="Snapshot summary">
+          <div class="meta-pill">
+            <span class="meta-label">Scanned</span>
+            <strong id="meta-scanned">—</strong>
+          </div>
+          <div class="meta-pill">
+            <span class="meta-label">Excluded</span>
+            <strong id="meta-excluded">—</strong>
+          </div>
+          <div class="meta-pill">
+            <span class="meta-label">Watchlist</span>
+            <strong id="meta-watchlist">—</strong>
+          </div>
+          <div class="meta-pill">
+            <span class="meta-label">Snapshot</span>
+            <strong id="meta-date">—</strong>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-methodology" title="View valuation and exclusion methodology">Methodology</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-export-csv" title="Export current filtered board to CSV">Export CSV</button>
+          <button type="button" class="btn btn-primary btn-sm" id="btn-reset-all" title="Reset all filters and sorting">Reset View</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="main-content" id="main-content">
+      <section class="kpi-grid" id="kpi-strip" aria-label="Board key performance indicators">
+        <article class="kpi-card">
+          <div class="kpi-head">
+            <span class="kpi-label">Ranked Tokenless</span>
+            <span class="kpi-tag" id="kpi-count-share">100%</span>
+          </div>
+          <div class="kpi-value" id="kpi-count">—</div>
+          <div class="kpi-sub" id="kpi-count-sub">Loading sealed snapshot…</div>
+        </article>
+
+        <article class="kpi-card kpi-card-accent">
+          <div class="kpi-head">
+            <span class="kpi-label">Implied Launch FDV</span>
+            <span class="kpi-tag">BASE CASE</span>
+          </div>
+          <div class="kpi-value" id="kpi-total-fdv">—</div>
+          <div class="kpi-sub" id="kpi-fdv-range">Bear – Bull range</div>
+        </article>
+
+        <article class="kpi-card">
+          <div class="kpi-head">
+            <span class="kpi-label">Est. Airdrop Pool</span>
+            <span class="kpi-tag kpi-tag-green">COMMUNITY</span>
+          </div>
+          <div class="kpi-value" id="kpi-airdrop-pool">—</div>
+          <div class="kpi-sub" id="kpi-airdrop-sub">Avg allocation %</div>
+        </article>
+
+        <article class="kpi-card">
+          <div class="kpi-head">
+            <span class="kpi-label">Tokenless TVL</span>
+            <span class="kpi-tag" id="kpi-tvl-momentum">30D</span>
+          </div>
+          <div class="kpi-value" id="kpi-total-tvl">—</div>
+          <div class="kpi-sub" id="kpi-tvl-sub">Median 30d delta</div>
+        </article>
+
+        <article class="kpi-card">
+          <div class="kpi-head">
+            <span class="kpi-label">Top Launch Target</span>
+            <span class="kpi-tag kpi-tag-amber">#1 VISIBLE</span>
+          </div>
+          <div class="kpi-value kpi-value-sm" id="kpi-top-protocol">—</div>
+          <div class="kpi-sub" id="kpi-top-sub">Click row to inspect playbook</div>
+        </article>
+
+        <article class="kpi-card">
+          <div class="kpi-head">
+            <span class="kpi-label">Avg Launch Score</span>
+            <span class="kpi-tag" id="kpi-points-count">0 POINTS</span>
+          </div>
+          <div class="kpi-value" id="kpi-avg-score">—</div>
+          <div class="kpi-sub" id="kpi-score-sub">Composite readiness / 100</div>
+        </article>
+      </section>
+
+      <section class="analytics-strip" id="analytics-strip" aria-label="Sector and ecosystem breakdown">
+        <article class="panel chart-panel">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Implied Launch Value by Sector</h2>
+              <p class="panel-subtitle">Click any sector bar to filter the radar board</p>
+            </div>
+            <span class="panel-badge" id="sector-count-badge">Top Categories</span>
+          </div>
+          <div class="bar-chart" id="chart-sectors" role="list"></div>
+        </article>
+
+        <article class="panel chart-panel">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Ecosystem &amp; Conviction Mix</h2>
+              <p class="panel-subtitle">Leading chains by tokenless implied FDV &amp; tier split</p>
+            </div>
+            <span class="panel-badge" id="chain-count-badge">Top Chains</span>
+          </div>
+          <div class="bar-chart" id="chart-chains" role="list"></div>
+          <div class="tier-strip" id="tier-distribution" aria-label="Conviction tier breakdown"></div>
+        </article>
+      </section>
+
+      <section class="panel filter-panel" id="filter-panel" aria-label="Board filters and presets">
+        <div class="filter-top-row">
+          <div class="search-box">
+            <svg class="search-icon" viewBox="0 0 20 20" width="16" height="16" fill="none" aria-hidden="true">
+              <circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="1.8" />
+              <path d="M13.8 13.8L17.5 17.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+            <input type="search" id="filter-search" placeholder="Search protocol, chain, category, catalyst, or farming action… (Press /)" autocomplete="off" />
+            <button type="button" class="search-clear" id="btn-clear-search" aria-label="Clear search" hidden>&times;</button>
+          </div>
+
+          <div class="preset-group" role="group" aria-label="Quick presets">
+            <button type="button" class="preset-btn active" data-preset="all">All Ranked</button>
+            <button type="button" class="preset-btn" data-preset="watchlist">Watchlist</button>
+            <button type="button" class="preset-btn" data-preset="megalaunch">$500M+ FDV</button>
+            <button type="button" class="preset-btn" data-preset="points">Active Points</button>
+            <button type="button" class="preset-btn" data-preset="momentum">Fast Growers</button>
+            <button type="button" class="preset-btn" data-preset="low-effort">Easy Farms</button>
+          </div>
+        </div>
+
+        <div class="filter-controls-grid">
+          <label class="control-field">
+            <span>Category</span>
+            <select id="filter-category">
+              <option value="">All Categories</option>
+            </select>
+          </label>
+
+          <label class="control-field">
+            <span>Chain</span>
+            <select id="filter-chain">
+              <option value="">All Chains</option>
+            </select>
+          </label>
+
+          <label class="control-field">
+            <span>Conviction Tier</span>
+            <select id="filter-tier">
+              <option value="">All Tiers</option>
+              <option value="S">S-Tier (Prime)</option>
+              <option value="A">A-Tier (High)</option>
+              <option value="B">B-Tier (Solid)</option>
+              <option value="C">C-Tier (Emerging)</option>
+            </select>
+          </label>
+
+          <label class="control-field">
+            <span>Min Implied FDV</span>
+            <select id="filter-min-fdv">
+              <option value="0">Any FDV</option>
+              <option value="50000000">$50M+</option>
+              <option value="100000000">$100M+</option>
+              <option value="250000000">$250M+</option>
+              <option value="500000000">$500M+</option>
+              <option value="1000000000">$1B+</option>
+            </select>
+          </label>
+
+          <label class="control-field">
+            <span>Min TVL</span>
+            <select id="filter-min-tvl">
+              <option value="0">Any TVL</option>
+              <option value="1000000">$1M+</option>
+              <option value="10000000">$10M+</option>
+              <option value="50000000">$50M+</option>
+              <option value="100000000">$100M+</option>
+              <option value="500000000">$500M+</option>
+            </select>
+          </label>
+
+          <label class="control-field">
+            <span>Farm Effort</span>
+            <select id="filter-effort">
+              <option value="">Any Effort</option>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+          </label>
+
+          <label class="control-field">
+            <span>Sort Ranking</span>
+            <select id="filter-sort">
+              <option value="impliedFdv:desc">Implied FDV (High → Low)</option>
+              <option value="score:desc">Launch Score (High → Low)</option>
+              <option value="airdropUsd:desc">Est. Airdrop Pool (High → Low)</option>
+              <option value="tvl:desc">TVL (High → Low)</option>
+              <option value="change30d:desc">30d TVL Growth (High → Low)</option>
+              <option value="farmScore:desc">Farm Efficiency (High → Low)</option>
+              <option value="name:asc">Protocol Name (A → Z)</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="filter-bottom-row">
+          <div class="toggle-chips" id="filter-chips">
+            <label class="chip-toggle"><input type="checkbox" id="toggle-watchlist" /><span>Watchlist Only</span></label>
+            <label class="chip-toggle"><input type="checkbox" id="toggle-points" /><span>Points / Incentives</span></label>
+            <label class="chip-toggle"><input type="checkbox" id="toggle-growing" /><span>30d TVL Growing</span></label>
+            <label class="chip-toggle"><input type="checkbox" id="toggle-multichain" /><span>Multi-Chain</span></label>
+            <label class="chip-toggle"><input type="checkbox" id="toggle-high-conf" /><span>High Confidence</span></label>
+          </div>
+
+          <div class="filter-status-right">
+            <div class="active-filters" id="active-filters-bar"></div>
+            <span class="results-counter" id="results-count">0 protocols</span>
+            <div class="density-switch" role="group" aria-label="Table row density">
+              <button type="button" class="density-btn active" data-density="comfortable">Comfort</button>
+              <button type="button" class="density-btn" data-density="compact">Compact</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel board-panel" aria-label="Ranked tokenless protocols board">
+        <div class="table-wrap">
+          <table class="board-table" id="board-table">
+            <thead>
+              <tr>
+                <th class="col-rank sortable" data-sort="rank">#</th>
+                <th class="col-protocol sortable" data-sort="name">Protocol &amp; Sector</th>
+                <th class="col-fdv sortable num" data-sort="impliedFdv">Implied Launch FDV</th>
+                <th class="col-airdrop sortable num" data-sort="airdropUsd">Est. Airdrop Pool</th>
+                <th class="col-tvl sortable num" data-sort="tvl">TVL</th>
+                <th class="col-momentum sortable num" data-sort="change30d">7d / 30d</th>
+                <th class="col-score sortable num" data-sort="score">Launch Score</th>
+                <th class="col-basis">Valuation Basis</th>
+                <th class="col-farm">Farm Plan</th>
+              </tr>
+            </thead>
+            <tbody id="board-tbody"></tbody>
+          </table>
+        </div>
+
+        <div class="empty-state" id="board-empty" hidden>
+          <h3>No protocols match your active filters</h3>
+          <p>Broaden your TVL, implied FDV, category, or chain selection to inspect more tokenless launch candidates.</p>
+          <button type="button" class="btn btn-primary" id="btn-empty-reset">Reset All Filters</button>
+        </div>
+
+        <div class="board-footer" id="board-footer">
+          <div class="footer-left">
+            <span id="pagination-info">Showing 0–0 of 0</span>
+            <label class="page-size-label">
+              Rows
+              <select id="page-size">
+                <option value="25">25</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
+                <option value="9999">All</option>
+              </select>
+            </label>
+          </div>
+          <div class="pagination-controls">
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-prev-page" disabled>&larr; Prev</button>
+            <span class="page-indicator" id="page-indicator">Page 1 / 1</span>
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-next-page" disabled>Next &rarr;</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer" role="contentinfo">
+      <div class="footer-inner">
+        <p id="footer-status">Offline static intelligence board. Tokenless screening excludes live traded tokens, wrapped variants, liquid staking derivatives, and sub-products of tokenized parents.</p>
+        <p class="footer-hint">Shortcuts: <kbd>/</kbd> Search &middot; <kbd>&uarr;</kbd>/<kbd>&darr;</kbd> Navigate &middot; <kbd>Esc</kbd> Close Drawer</p>
+      </div>
+    </footer>
+  </div>
+
+  <div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
+
+  <aside class="detail-drawer" id="detail-drawer" role="dialog" aria-modal="true" aria-labelledby="detail-name" aria-hidden="true">
+    <div class="drawer-header">
+      <div class="drawer-title-wrap">
+        <div class="detail-avatar" id="detail-avatar" aria-hidden="true">TL</div>
+        <div>
+          <div class="detail-name-row">
+            <h2 id="detail-name">Protocol Name</h2>
+            <span class="rank-pill" id="detail-rank">#1</span>
+            <span class="tier-pill" id="detail-tier">S</span>
+            <span class="watchlist-pill" id="detail-watchlist-badge" hidden>WATCHLIST</span>
+          </div>
+          <div class="detail-tags" id="detail-tags"></div>
+        </div>
+      </div>
+      <div class="drawer-nav-actions">
+        <button type="button" class="btn btn-ghost btn-sm" id="btn-prev-protocol" title="Previous protocol">&larr; Prev</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="btn-next-protocol" title="Next protocol">Next &rarr;</button>
+        <button type="button" class="btn-icon-close" id="btn-close-drawer" aria-label="Close protocol details">&times;</button>
+      </div>
+    </div>
+
+    <div class="drawer-body" id="drawer-body">
+      <section class="detail-card" id="detail-valuation">
+        <div class="detail-card-head">
+          <h3>Implied Launch Valuation</h3>
+          <span class="detail-pill" id="detail-confidence">Confidence: —</span>
+        </div>
+        <div class="fdv-trio">
+          <div class="fdv-box">
+            <span class="fdv-label">Bear Case</span>
+            <strong class="fdv-num" id="detail-fdv-bear">—</strong>
+          </div>
+          <div class="fdv-box fdv-box-primary">
+            <span class="fdv-label">Base Implied FDV</span>
+            <strong class="fdv-num" id="detail-fdv-base">—</strong>
+          </div>
+          <div class="fdv-box">
+            <span class="fdv-label">Bull Case</span>
+            <strong class="fdv-num" id="detail-fdv-bull">—</strong>
+          </div>
+        </div>
+        <div class="detail-range-bar" id="detail-fdv-range"></div>
+        <div class="detail-metrics-grid" id="detail-metrics-grid"></div>
+        <div class="detail-drivers" id="detail-valuation-drivers"></div>
+      </section>
+
+      <section class="detail-card" id="detail-farming">
+        <div class="detail-card-head">
+          <h3>Step-by-Step Farming Playbook</h3>
+          <div class="farm-meta-badges" id="detail-farm-meta"></div>
+        </div>
+        <p class="farm-strategy-summary" id="detail-farm-summary"></p>
+        <ol class="farm-steps-list" id="detail-farm-steps"></ol>
+        <div class="farm-risk-box" id="detail-farm-risks"></div>
+      </section>
+
+      <section class="detail-card" id="detail-thesis-section">
+        <div class="detail-card-head">
+          <h3>Launch Thesis &amp; Readiness Breakdown</h3>
+          <span class="detail-pill" id="detail-score-badge">Score —/100</span>
+        </div>
+        <p class="detail-thesis" id="detail-thesis"></p>
+        <div class="score-bars" id="detail-score-bars"></div>
+      </section>
+
+      <section class="detail-card" id="detail-eligibility">
+        <div class="detail-card-head">
+          <h3>Tokenless Audit &amp; Derivative Screening</h3>
+          <span class="badge badge-pass">VERIFIED TOKENLESS</span>
+        </div>
+        <ul class="audit-list" id="detail-audit-list"></ul>
+      </section>
+
+      <section class="detail-card" id="detail-extras">
+        <div class="detail-card-head">
+          <h3>Chain Footprint &amp; Valuation Comparables</h3>
+        </div>
+        <div class="extras-split">
+          <div>
+            <h4 class="subhead">TVL by Chain</h4>
+            <div class="chain-bars" id="detail-chain-bars"></div>
+          </div>
+          <div>
+            <h4 class="subhead">Peer Benchmarks</h4>
+            <div class="comps-list" id="detail-comps-list"></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </aside>
+
+  <div class="modal" id="methodology-modal" role="dialog" aria-modal="true" aria-labelledby="methodology-title" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2 id="methodology-title">Radar Screening &amp; Valuation Methodology</h2>
+        <button type="button" class="btn-icon-close" id="btn-close-methodology" aria-label="Close methodology">&times;</button>
+      </div>
+      <div class="modal-body" id="methodology-body">
+        <div class="method-block">
+          <h4>1. Tokenless &amp; Non-Derivative Filtering</h4>
+          <p>Every DefiLlama protocol in the sealed snapshot is audited for native token status (symbol, Gecko ID, CMC ID, market cap, token address). Protocols representing wrapped assets, liquid staking/restaking receipts, bridged versions, or sub-products of already-tokenized parent protocols are excluded so the board isolates genuine pre-TGE opportunities.</p>
+        </div>
+        <div class="method-block">
+          <h4>2. Peer-Anchored Implied Launch FDV</h4>
+          <p>Base implied FDV anchors each protocol's TVL against sector-specific peer FDV/TVL multiples calibrated from tokenized comparables in the same snapshot, then adjusts for scale elasticity, 7d/30d TVL momentum, multi-chain distribution, category monetization, and observable incentive signals to produce Bear, Base, and Bull ranges plus estimated community airdrop pools.</p>
+        </div>
+        <div class="method-block">
+          <h4>3. Actionable Farming Playbooks</h4>
+          <p>Each ranked protocol receives a tailored, category- and chain-aware farming sequence detailing capital positioning, activity cadence, point multipliers, and sybil-hygiene safeguards. Checklist progress saves locally in your browser with zero external network calls.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script id="board-data" type="application/json"></script>
+  <script src="./board-data.js" onerror="window.__NO_BOARD_DATA_JS=true"></script>
+  <script src="./app.js" defer></script>
+</body>
+</html>

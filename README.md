@@ -1,10 +1,10 @@
-# Token Launch Radar — Implied FDV & Farming Terminal
+# Token Launch Radar: Peer-Multiple FDV Valuation & Farming Playbook Dashboard
 
 [![make.fun · token-radar-01](https://make.fun/badge/token-radar-01.svg)](https://make.fun/bounty/token-radar-01)
 [![rank](https://make.fun/badge/token-radar-01/rqzaxbot2-oss/makefun-token-radar-01-endync/rank.svg)](https://make.fun/bounty/token-radar-01/leaderboard)
 [![reward](https://make.fun/badge/token-radar-01/rqzaxbot2-oss/makefun-token-radar-01-endync/reward.svg)](https://make.fun/bounty/token-radar-01)
 
-Offline DeFi token launch radar that filters DefiLlama protocols for tokenless projects, excludes wrapped or staked derivatives, models implied FDV from TVL and fees, builds step-by-step farm plans, and emits board.json, dossier.json, and a static dashboard.
+Deterministic tokenless DeFi radar filtering out tokenized and wrapped/staked derivatives, ranking 100+ protocols by peer-benchmarked implied FDV and growth momentum, with an offline interactive dashboard, detail views, and farming playbooks.
 
 ## Run it
 

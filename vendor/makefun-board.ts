@@ -1,757 +1,373 @@
-import { createHash } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+// make.fun's dashboard-dossier library for Node 22: one file, the Node standard library only, erasable
+// TypeScript, so it runs as-is under `node main.ts` with no flags, no build and no install. Copy it to
+// vendor/makefun-board.ts in your repository (a copy anywhere else counts as lines you wrote) and import it:
+//
+//   import { buildDossier } from './vendor/makefun-board.ts';
+//   writeFileSync('/output/dossier.json', buildDossier('/output', { text_max_bytes: 65536 }));
+//
+// The bounty's scorer runs this same file, byte for byte, on what you hand in, and requires your
+// dossier.json to equal what buildDossier writes from your dashboard/ and screenshots/.
+//
+//   buildDossier(dir, caps)  the dossier (makefun/dossier/v1) of a dashboard directory, as canonical
+//                            JSON bytes: the screenshots plus a text of the page's source
+//
+// A dossier is one JSON object (contracts/dossier.ts):
+//
+//   schema   "makefun/dossier/v1"
+//   cover    0: the first screenshot by name is the cover
+//   images   the PNG and JPEG files in dir/screenshots/ (names starting with '.' skipped), in name
+//            order, each {name, media_type, sha256, base64}
+//   text     what the judge reads: a "## Dashboard" block (the file count, the bytes, and every file's
+//            path with its size), then "## Source", each text file's path, size and line count and its
+//            contents in a fenced block by path, every file by path
+//
+// The text holds at most caps.text_max_bytes UTF-8 bytes: every file that fits goes in whole, in path
+// order; the first that does not goes in up to its last complete line that fits (its fence closed, then
+// a line naming how many of its lines are not shown), or not at all when not one line fits; nothing
+// follows it but a last line naming how many whole files and how many bytes were left out. A file whose
+// extension is not one of .html .css .js .json .mjs .svg .md .txt is named in the Dashboard block and
+// not shown: the text is source, and the page's images are not source.
+//
+// buildDossier refuses (DossierError) an empty screenshots/ directory, a screenshot name a dossier
+// refuses, a screenshot that is not a whole PNG or JPEG, a screenshot past its byte cap or more
+// screenshots than the count cap, a dashboard file that is not plain (a link, a dot-directory, a name
+// that is not letters, digits and . _ -, a file past its byte cap or more files than the count cap),
+// a text cap that cannot hold the Dashboard block and the cut line, and a dossier past DOSSIER_MAX_BYTES.
+// The caps only refuse: they never shape the bytes. Only text_max_bytes shapes them, so a program that
+// passes {text_max_bytes} and writes the result has written what the scorer, given its other caps too,
+// compares byte for byte.
 
-export const BOARD_SCHEMA_VERSION = "makefun-board/1";
-export const DOSSIER_SCHEMA_VERSION = "makefun-dossier/1";
-export const MIN_BOARD_ROWS = 100;
-export const DEFAULT_SNAPSHOT_TIMESTAMP = "2026-01-01T00:00:00.000Z";
+import { createHash } from 'node:crypto';
+import { closeSync, constants, fstatSync, lstatSync, openSync, readdirSync, readSync } from 'node:fs';
+import { join } from 'node:path';
 
-export interface FarmStepLike {
-  action?: string;
-  description?: string;
-  step?: string;
-  summary?: string;
-  title?: string;
-  [key: string]: unknown;
+/** The dossier schema buildDossier writes (contracts/dossier.ts DOSSIER_SCHEMA). */
+export const DOSSIER_SCHEMA = 'makefun/dossier/v1';
+/** The most bytes a dossier holds (contracts/dossier.ts DOSSIER_MAX_BYTES): 4 MiB. */
+export const DOSSIER_MAX_BYTES = 4 * 1024 * 1024;
+/** The most images a dossier holds (contracts/dossier.ts DOSSIER_MAX_IMAGES). */
+export const DOSSIER_MAX_IMAGES = 8;
+/** A plain file's name (contracts/dossier.ts DossierImageName): a letter, digit or _ first, then letters, digits and . _ -, 1 to 128 of them, no directory. */
+export const PLAIN_NAME = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$/;
+/** A dashboard file whose contents the dossier's text shows: source, never an image. */
+export const TEXT_FILE = /\.(?:html|css|js|json|mjs|svg|md|txt)$/;
+
+/** What buildDossier is held to: the text's cap in UTF-8 bytes, and, when given, the screenshot and dashboard caps, which only refuse. */
+export interface DossierCaps {
+  text_max_bytes: number;
+  screenshots?: { max: number; max_bytes: number };
+  dashboard?: { max_files: number; max_bytes: number };
 }
 
-export interface FarmPlanLike {
-  steps?: ReadonlyArray<string | FarmStepLike>;
-  strategy?: string;
-  summary?: string;
-  [key: string]: unknown;
-}
-
-export interface BoardRowInput {
-  category?: string;
-  chains?: readonly string[];
-  compositeScore?: number;
-  estimatedFdvUsd?: number;
-  excluded?: boolean;
-  farm?: FarmPlanLike;
-  farmPlan?: FarmPlanLike | ReadonlyArray<string | FarmStepLike>;
-  farm_plan?: FarmPlanLike | ReadonlyArray<string | FarmStepLike>;
-  farmingSteps?: ReadonlyArray<string | FarmStepLike>;
-  hasLiveToken?: boolean;
-  hasToken?: boolean;
-  id?: string;
-  impliedFdv?: number;
-  impliedFdvHighUsd?: number;
-  impliedFdvLowUsd?: number;
-  impliedFdvUsd?: number;
-  impliedValue?: number;
-  impliedValueHigh?: number;
-  impliedValueLow?: number;
-  impliedValueUsd?: number;
-  inWatchlist?: boolean;
-  isDerivative?: boolean;
-  isStakedDerivative?: boolean;
-  isWatchlist?: boolean;
-  isWrapped?: boolean;
-  launchScore?: number;
-  metrics?: Record<string, unknown>;
-  name: string;
-  radarScore?: number;
-  rank?: number;
-  score?: number;
-  slug?: string;
-  steps?: ReadonlyArray<string | FarmStepLike>;
-  tvl?: number;
-  tvlUsd?: number;
-  valuation?: Record<string, unknown>;
-  valuationUsd?: number;
-  watchlist?: boolean;
-  [key: string]: unknown;
-}
-
-export type CanonicalBoardRow<T extends BoardRowInput = BoardRowInput> = T & {
-  impliedValueUsd: number;
-  name: string;
-  rank: number;
-  slug: string;
-  tvlUsd: number;
-  watchlist: boolean;
-};
-
-export interface BoardBuildOptions {
-  artifacts?: ReadonlyArray<{ path: string; sha256?: string }>;
-  generatedAt?: string;
-  methodology?: Record<string, unknown>;
-  minRows?: number;
-  snapshotHash?: string;
-  sortBy?: "impliedValue" | "score";
-  strict?: boolean;
-  watchlist?: readonly string[];
-}
-
-export interface InvariantReport {
-  allHaveFarmPlan: boolean;
-  allHaveImpliedValue: boolean;
-  contiguousRanks: boolean;
-  minRowsMet: boolean;
-  noLiveTokenOrDerivative: boolean;
-  rankingMonotonic: boolean;
-  uniqueSlugs: boolean;
-  watchlistComplete: boolean;
-}
-
-export interface WatchlistSummary {
-  complete: boolean;
-  coverageRatio: number;
-  covered: string[];
-  missing: string[];
-  required: string[];
-}
-
-export interface ValidationResult {
-  errors: string[];
-  invariants: InvariantReport;
-  valid: boolean;
-  warnings: string[];
-  watchlist: WatchlistSummary;
-}
-
-export interface BoardDocument<T extends BoardRowInput = BoardRowInput> {
-  generatedAt: string;
-  minRows: number;
-  rows: CanonicalBoardRow<T>[];
-  schemaVersion: string;
-  snapshotHash: string;
-  summary: {
-    categories: Record<string, number>;
-    chains: Record<string, number>;
-    medianImpliedValueUsd: number;
-    topImpliedValueUsd: number;
-    totalImpliedValueUsd: number;
-    totalTvlUsd: number;
-  };
-  totalProtocols: number;
-  watchlist: WatchlistSummary;
-}
-
-export interface DossierDocument {
-  artifacts: Array<{ path: string; sha256?: string }>;
-  boardSchemaVersion: string;
-  boardSha256: string;
-  distribution: {
-    byCategory: Array<{
-      category: string;
-      count: number;
-      totalImpliedValueUsd: number;
-      totalTvlUsd: number;
-    }>;
-    byChain: Array<{ chain: string; count: number; totalTvlUsd: number }>;
-    maxImpliedValueUsd: number;
-    meanImpliedValueUsd: number;
-    medianImpliedValueUsd: number;
-    minImpliedValueUsd: number;
-    p10ImpliedValueUsd: number;
-    p90ImpliedValueUsd: number;
-    totalImpliedValueUsd: number;
-    totalTvlUsd: number;
-  };
-  errors: string[];
-  generatedAt: string;
-  invariants: InvariantReport;
-  methodology: Record<string, unknown>;
-  rowCount: number;
-  schemaVersion: string;
-  topProtocols: Array<{
-    category: string;
-    farmStepCount: number;
-    impliedValueUsd: number;
-    name: string;
-    rank: number;
-    slug: string;
-    tvlUsd: number;
-    watchlist: boolean;
-  }>;
-  valid: boolean;
-  warnings: string[];
-  watchlist: {
-    complete: boolean;
-    coverageRatio: number;
-    covered: number;
-    items: Array<{
-      farmStepCount: number;
-      impliedValueUsd: number;
-      name: string;
-      rank: number;
-      slug: string;
-      tvlUsd: number;
-    }>;
-    missing: string[];
-    total: number;
-  };
-}
-
-export interface BoardArtifactsResult<T extends BoardRowInput = BoardRowInput> {
-  board: BoardDocument<T>;
-  boardJson: string;
-  boardSha256: string;
-  dossier: DossierDocument;
-  dossierJson: string;
-  dossierSha256: string;
-  validation: ValidationResult;
-}
-
-function cmpStr(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
-}
-
-function round2(n: number): number {
-  return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
-}
-
-function toFinite(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-export function normalizeSlug(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-export function canonicalize<T>(value: T): T {
-  if (value === null || value === undefined) return value;
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) return null as unknown as T;
-    return (Object.is(value, -0) ? 0 : value) as unknown as T;
+/** Why buildDossier writes no dossier for a directory: its caps, its screenshots, its dashboard or its size. */
+export class DossierError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DossierError';
   }
-  if (Array.isArray(value)) {
-    return value.map((item) => canonicalize(item)) as unknown as T;
+}
+
+// ---------------------------------------------------------------- bytes
+
+const sha256Hex = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
+const byCodeUnit = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+const byteLength = (s: string): number => Buffer.byteLength(s, 'utf8');
+
+const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+const JPEG_MAGIC = [0xff, 0xd8, 0xff];
+
+const opensWith = (bytes: Uint8Array, magic: readonly number[]): boolean => bytes.length >= magic.length && magic.every((b, i) => bytes[i] === b);
+
+/**
+ * A regular file's bytes when it is at most `cap` long; never through a link, never more than `cap`
+ * bytes read. A link, a directory or a missing file is a DossierError with `what`.
+ */
+function readCapped(path: string, cap: number, what: string): Uint8Array {
+  let size: number;
+  try {
+    const st = lstatSync(path);
+    if (!st.isFile()) throw new DossierError(`buildDossier: ${what} is not a regular file`);
+    size = st.size;
+  } catch (err) {
+    if (err instanceof DossierError) throw err;
+    throw new DossierError(`buildDossier: ${what} cannot be read`);
   }
-  if (typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    const out: Record<string, unknown> = {};
-    for (const key of Object.keys(record).sort(cmpStr)) {
-      if (record[key] !== undefined) out[key] = canonicalize(record[key]);
+  if (size > cap) throw new DossierError(`buildDossier: ${what} is ${size} bytes, over the ${cap} a dossier reads`);
+  let fd: number;
+  try {
+    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  } catch {
+    throw new DossierError(`buildDossier: ${what} is not a regular file`);
+  }
+  try {
+    const now = fstatSync(fd).size;
+    if (now > cap) throw new DossierError(`buildDossier: ${what} is ${now} bytes, over the ${cap} a dossier reads`);
+    const buf = Buffer.alloc(now);
+    let at = 0;
+    while (at < buf.length) {
+      const n = readSync(fd, buf, at, buf.length - at, at);
+      if (n === 0) break;
+      at += n;
     }
-    return out as T;
+    return new Uint8Array(buf.buffer, buf.byteOffset, at);
+  } finally {
+    closeSync(fd);
   }
-  return value;
 }
 
-export function canonicalStringify(value: unknown, space = 2): string {
-  return `${JSON.stringify(canonicalize(value), null, space)}\n`;
+/** Lines of a text: 0 when empty, else its newlines plus one for a last line with none. */
+function lineCount(bytes: Uint8Array): number {
+  if (bytes.length === 0) return 0;
+  let n = 0;
+  for (const b of bytes) if (b === 0x0a) n++;
+  return bytes[bytes.length - 1] === 0x0a ? n : n + 1;
 }
 
-export function sha256Hex(content: string | Uint8Array): string {
-  return createHash("sha256").update(content).digest("hex");
+/** A Markdown fence one backtick longer than the longest run in `body`, three at least. */
+function fenceFor(body: string): string {
+  let longest = 0;
+  for (const run of body.match(/`+/g) ?? []) longest = Math.max(longest, run.length);
+  return '`'.repeat(Math.max(3, longest + 1));
 }
 
-function extractSlug(row: BoardRowInput): string {
-  const raw = typeof row.slug === "string" && row.slug.trim()
-    ? row.slug
-    : typeof row.id === "string" && row.id.trim()
-      ? row.id
-      : typeof row.name === "string"
-        ? row.name
-        : "";
-  return normalizeSlug(raw);
+/** The fence a file's extension is shown with. */
+function languageOf(path: string): string {
+  const ext = path.slice(path.lastIndexOf('.') + 1);
+  return ext === 'mjs' ? 'js' : ext;
 }
 
-function extractImpliedValue(row: BoardRowInput): number {
-  const val = row.valuation ?? {};
-  const candidates = [
-    row.impliedValueUsd,
-    row.impliedFdvUsd,
-    row.impliedValue,
-    row.impliedFdv,
-    row.valuationUsd,
-    row.estimatedFdvUsd,
-    val.impliedFdvUsd,
-    val.impliedValueUsd,
-    val.pointEstimateUsd,
-    val.midUsd,
-    val.medianUsd,
-    val.baseUsd,
-  ];
-  for (const c of candidates) {
-    const n = toFinite(c);
-    if (n !== null) return n;
+/**
+ * JSON with every object's keys in code-unit order and no whitespace: one spelling per value. Takes
+ * null, booleans, finite numbers, strings, arrays and plain objects; throws TypeError on anything else
+ * (undefined, a function, a bigint, NaN, Infinity, a class instance).
+ */
+export function canonicalJson(value: unknown): string {
+  if (value === null || typeof value === 'boolean' || typeof value === 'string') return JSON.stringify(value);
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new TypeError(`canonicalJson: ${value} is not a finite number`);
+    return JSON.stringify(value);
   }
-  return 0;
-}
-
-function extractTvl(row: BoardRowInput): number {
-  const metrics = row.metrics ?? {};
-  const candidates = [row.tvlUsd, row.tvl, metrics.tvlUsd, metrics.tvl];
-  for (const c of candidates) {
-    const n = toFinite(c);
-    if (n !== null) return n;
+  if (Array.isArray(value)) return `[${value.map((v) => canonicalJson(v)).join(',')}]`;
+  if (typeof value === 'object') {
+    const proto = Object.getPrototypeOf(value);
+    if (proto !== Object.prototype && proto !== null) throw new TypeError('canonicalJson: only plain objects and arrays');
+    const o = value as Record<string, unknown>;
+    return `{${Object.keys(o)
+      .sort(byCodeUnit)
+      .map((k) => `${JSON.stringify(k)}:${canonicalJson(o[k])}`)
+      .join(',')}}`;
   }
-  return 0;
+  throw new TypeError(`canonicalJson: a ${typeof value} has no JSON form`);
 }
 
-function extractScore(row: BoardRowInput): number {
-  const candidates = [
-    row.score,
-    row.compositeScore,
-    row.launchScore,
-    row.radarScore,
-  ];
-  for (const c of candidates) {
-    const n = toFinite(c);
-    if (n !== null) return n;
+// ---------------------------------------------------------------- the dashboard walk
+
+/** One file of the dashboard tree: its path relative to the directory, and its size in bytes. */
+interface DashFile {
+  path: string;
+  size: number;
+}
+
+/**
+ * Every regular file under `root` (symbolic links are neither followed nor taken for files), in path
+ * order, with its size. Refuses a dot-directory, a file whose name a dossier refuses, an entry that is
+ * neither a file nor a directory, and, when the caps are given, too many files or bytes in all.
+ */
+function dashboardFiles(root: string, caps: { max_files: number; max_bytes: number } | null): DashFile[] {
+  let st: import('node:fs').Stats;
+  try {
+    st = lstatSync(root);
+  } catch {
+    throw new DossierError('buildDossier: no dashboard/ directory: the page and its source are what the judge reads');
   }
-  return extractImpliedValue(row);
-}
-
-function isNonEmptyStep(step: unknown): boolean {
-  if (typeof step === "string") return step.trim().length > 0;
-  if (step && typeof step === "object") {
-    const s = step as FarmStepLike;
-    return [s.action, s.title, s.description, s.step, s.summary].some(
-      (v) => typeof v === "string" && v.trim().length > 0,
-    );
-  }
-  return false;
-}
-
-function extractFarmSteps(row: BoardRowInput): unknown[] {
-  const sources = [
-    row.farmPlan,
-    row.farm_plan,
-    row.farmingSteps,
-    row.steps,
-    row.farm,
-  ];
-  for (const src of sources) {
-    if (Array.isArray(src)) return src.filter(isNonEmptyStep);
-    if (src && typeof src === "object") {
-      const plan = src as FarmPlanLike;
-      if (Array.isArray(plan.steps)) return plan.steps.filter(isNonEmptyStep);
-    }
-  }
-  return [];
-}
-
-function hasValidFarmPlan(row: BoardRowInput): boolean {
-  if (extractFarmSteps(row).length > 0) return true;
-  for (const src of [row.farmPlan, row.farm_plan, row.farm]) {
-    if (src && typeof src === "object" && !Array.isArray(src)) {
-      const plan = src as FarmPlanLike;
-      if (
-        (typeof plan.summary === "string" && plan.summary.trim().length > 0) ||
-        (typeof plan.strategy === "string" && plan.strategy.trim().length > 0)
-      ) {
-        return true;
+  if (!st.isDirectory()) throw new DossierError('buildDossier: dashboard is not a directory');
+  const out: DashFile[] = [];
+  let bytes = 0;
+  const stack: string[] = [''];
+  while (stack.length > 0) {
+    const rel = stack.pop()!;
+    for (const e of readdirSync(rel === '' ? root : join(root, rel), { withFileTypes: true })) {
+      const p = rel === '' ? e.name : `${rel}/${e.name}`;
+      if (e.isDirectory()) {
+        if (e.name.startsWith('.')) throw new DossierError(`buildDossier: dashboard/${p} is a dot-directory`);
+        stack.push(p);
+      } else if (e.isFile()) {
+        if (!PLAIN_NAME.test(e.name)) throw new DossierError(`buildDossier: dashboard/${p}: a file's name is letters, digits and . _ -, 1 to 128 characters, not starting with . or -`);
+        const size = lstatSync(join(root, p)).size;
+        out.push({ path: p, size });
+        bytes += size;
+        if (caps !== null && out.length > caps.max_files) throw new DossierError(`buildDossier: dashboard/ holds more than the ${caps.max_files} files it may`);
+        if (caps !== null && bytes > caps.max_bytes) throw new DossierError(`buildDossier: dashboard/'s files come to more than the ${caps.max_bytes} bytes they may`);
+      } else {
+        throw new DossierError(`buildDossier: dashboard/${p} is neither a file nor a directory`);
       }
     }
   }
-  return false;
+  return out.sort((a, b) => byCodeUnit(a.path, b.path));
 }
 
-function hasDisqualifyingTokenFlag(row: BoardRowInput): boolean {
-  return Boolean(
-    row.hasToken ||
-      row.hasLiveToken ||
-      row.isWrapped ||
-      row.isStakedDerivative ||
-      row.isDerivative ||
-      row.excluded,
-  );
-}
+// ---------------------------------------------------------------- the dossier
 
-function percentile(sortedAsc: readonly number[], p: number): number {
-  if (sortedAsc.length === 0) return 0;
-  const idx = (sortedAsc.length - 1) * p;
-  const lo = Math.floor(idx);
-  const hi = Math.ceil(idx);
-  if (lo === hi) return sortedAsc[lo];
-  const weight = idx - lo;
-  return sortedAsc[lo] * (1 - weight) + sortedAsc[hi] * weight;
-}
+/**
+ * The dossier (makefun/dossier/v1, contracts/dossier.ts) of a dashboard directory, as canonical JSON
+ * bytes: `dir/screenshots/`'s PNG and JPEG files (names starting with '.' skipped) are its images, the
+ * first the cover; its text is the "## Dashboard" block and the "## Source" sections described above,
+ * capped at `caps.text_max_bytes` UTF-8 bytes with the cut rule above. Throws DossierError on caps it
+ * cannot keep and on a dashboard or screenshots directory it refuses (see the header).
+ */
+export function buildDossier(dir: string, caps: DossierCaps): Uint8Array {
+  const max = caps.text_max_bytes;
+  if (!Number.isSafeInteger(max) || max <= 0) throw new DossierError(`buildDossier: caps.text_max_bytes must be a positive integer, not ${String(max)}`);
 
-function normalizeWatchlist(list?: readonly string[]): string[] {
-  if (!list || list.length === 0) return [];
-  const unique = new Set<string>();
-  for (const item of list) {
-    const slug = normalizeSlug(item);
-    if (slug) unique.add(slug);
+  let maxImages = { n: DOSSIER_MAX_IMAGES, whose: 'a dossier holds' };
+  let maxImageBytes = { n: DOSSIER_MAX_BYTES, whose: 'a dossier holds' };
+  if (caps.screenshots !== undefined) {
+    const s = caps.screenshots as { max?: unknown; max_bytes?: unknown } | null;
+    if (typeof s !== 'object' || s === null) throw new DossierError('buildDossier: caps.screenshots must be an object {max, max_bytes}');
+    for (const k of ['max', 'max_bytes'] as const) {
+      const v = s[k];
+      if (typeof v !== 'number' || !Number.isSafeInteger(v) || v <= 0) throw new DossierError(`buildDossier: caps.screenshots.${k} must be a positive integer, not ${String(v)}`);
+    }
+    if ((s.max as number) < maxImages.n) maxImages = { n: s.max as number, whose: 'caps.screenshots.max allows' };
+    if ((s.max_bytes as number) < maxImageBytes.n) maxImageBytes = { n: s.max_bytes as number, whose: 'caps.screenshots.max_bytes allows' };
   }
-  return [...unique].sort(cmpStr);
-}
+  let fileCaps: { max_files: number; max_bytes: number } | null = null;
+  if (caps.dashboard !== undefined) {
+    const d = caps.dashboard as { max_files?: unknown; max_bytes?: unknown } | null;
+    if (typeof d !== 'object' || d === null) throw new DossierError('buildDossier: caps.dashboard must be an object {max_files, max_bytes}');
+    for (const k of ['max_files', 'max_bytes'] as const) {
+      const v = d[k];
+      if (typeof v !== 'number' || !Number.isSafeInteger(v) || v <= 0) throw new DossierError(`buildDossier: caps.dashboard.${k} must be a positive integer, not ${String(v)}`);
+    }
+    fileCaps = { max_files: d.max_files as number, max_bytes: d.max_bytes as number };
+  }
 
-export function rankBoardRows<T extends BoardRowInput>(
-  rows: readonly T[],
-  options: Pick<BoardBuildOptions, "watchlist" | "sortBy"> = {},
-): CanonicalBoardRow<T>[] {
-  const watchSet = new Set(normalizeWatchlist(options.watchlist));
-  const sortBy = options.sortBy ?? "impliedValue";
+  const files = dashboardFiles(join(dir, 'dashboard'), fileCaps);
 
-  const prepared = rows.map((row) => {
-    const slug = extractSlug(row);
-    const impliedValueUsd = round2(extractImpliedValue(row));
-    const tvlUsd = round2(extractTvl(row));
-    const primary = sortBy === "score" ? extractScore(row) : impliedValueUsd;
-    const watchlist = Boolean(
-      watchSet.has(slug) || row.watchlist || row.isWatchlist || row.inWatchlist,
-    );
-    return {
-      primary,
-      row: {
-        ...row,
-        impliedValueUsd,
-        name: String(row.name ?? slug).trim(),
-        rank: 0,
-        slug,
-        tvlUsd,
-        watchlist,
-      } as CanonicalBoardRow<T>,
-    };
+  const shotsDir = join(dir, 'screenshots');
+  let shotNames: string[];
+  try {
+    shotNames = readdirSync(shotsDir, { withFileTypes: true })
+      .filter((e) => e.isFile() && !e.name.startsWith('.'))
+      .map((e) => e.name)
+      .sort(byCodeUnit);
+  } catch (err) {
+    if ((err as { code?: string }).code === 'ENOENT') throw new DossierError('buildDossier: no screenshots/ directory: the first screenshot is the cover');
+    throw new DossierError('buildDossier: screenshots/ cannot be read');
+  }
+  if (shotNames.length === 0) throw new DossierError('buildDossier: screenshots/ holds no image: the first is the cover');
+  if (shotNames.length > maxImages.n) throw new DossierError(`buildDossier: screenshots/ holds ${shotNames.length} files, over the ${maxImages.n} ${maxImages.whose}`);
+  const images = shotNames.map((name) => {
+    if (!PLAIN_NAME.test(name)) throw new DossierError(`buildDossier: screenshots/${name}: a name is letters, digits and . _ -, 1 to 128 characters, not starting with . or -`);
+    const bytes = readCapped(join(shotsDir, name), maxImageBytes.n, `screenshots/${name}`);
+    const media_type = opensWith(bytes, PNG_MAGIC) ? 'image/png' : opensWith(bytes, JPEG_MAGIC) ? 'image/jpeg' : null;
+    if (media_type === null) throw new DossierError(`buildDossier: screenshots/${name} is neither a PNG nor a JPEG`);
+    return { name, media_type, sha256: sha256Hex(bytes), base64: Buffer.from(bytes).toString('base64') };
   });
 
-  prepared.sort((a, b) => {
-    if (b.primary !== a.primary) return b.primary - a.primary;
-    if (b.row.impliedValueUsd !== a.row.impliedValueUsd) {
-      return b.row.impliedValueUsd - a.row.impliedValueUsd;
-    }
-    if (b.row.tvlUsd !== a.row.tvlUsd) return b.row.tvlUsd - a.row.tvlUsd;
-    return cmpStr(a.row.slug, b.row.slug);
+  const head = [
+    '## Dashboard',
+    '',
+    `Files: ${files.length} (${files.reduce((n, f) => n + f.size, 0)} bytes)`,
+    ...files.map((f) => `- ${f.path} (${f.size} bytes)`),
+    '',
+    '## Source',
+    '',
+    '',
+  ].join('\n');
+
+  // The files whose contents are shown, by path; a binary file is named in the Dashboard block only.
+  const shown = files.filter((f) => TEXT_FILE.test(f.path));
+  interface Section {
+    heading: string;
+    code: ShownFile | null;
+    size: number;
+    bytes: number;
+  }
+  const sections: Section[] = shown.map((f) => {
+    const bytes = readCapped(join(dir, 'dashboard', f.path), DOSSIER_MAX_BYTES, `dashboard/${f.path}`);
+    const lines = lineCount(bytes);
+    const heading = `### ${f.path}\n\n${bytes.length} bytes, ${lines} line${lines === 1 ? '' : 's'}\n\n`;
+    if (bytes.length === 0) return { heading, code: null, size: byteLength(heading), bytes: 0 };
+    const text = new TextDecoder('utf-8').decode(bytes);
+    const fence = fenceFor(text);
+    const lang = languageOf(f.path);
+    const block = `${fence}${lang}\n${text}${text.endsWith('\n') ? '' : '\n'}${fence}\n\n`;
+    return { heading, code: { bytes, text, fence, lang, block, blockBytes: byteLength(block), lines }, size: byteLength(heading) + byteLength(block), bytes: bytes.length };
   });
 
-  return prepared.map((item, index) => ({
-    ...item.row,
-    rank: index + 1,
-  }));
+  // restBytes[k]: the bytes of the shown files after section k.
+  const restBytes = new Array<number>(sections.length + 1).fill(0);
+  for (let k = sections.length - 1; k >= 0; k--) restBytes[k] = restBytes[k + 1]! + (k + 1 < sections.length ? sections[k + 1]!.bytes : 0);
+
+  const cutLine = (count: number, bytes: number): string => `[Cut at ${max} bytes: ${count} file${count === 1 ? '' : 's'} and ${bytes} bytes left out.]\n`;
+  let out = head;
+  let used = byteLength(head);
+  if (used + byteLength(cutLine(0, 0)) > max) throw new DossierError(`buildDossier: caps.text_max_bytes ${max} cannot hold even the Dashboard block and the cut line`);
+  let kept = 0;
+  for (; kept < sections.length; kept++) {
+    const section = sections[kept]!;
+    const restCount = sections.length - kept - 1;
+    const tail = restCount === 0 ? 0 : byteLength(cutLine(restCount, restBytes[kept]!));
+    if (used + section.size + tail > max) break;
+    out += section.code === null ? section.heading : `${section.heading}${section.code.block}`;
+    used += section.size;
+  }
+  if (kept < sections.length) {
+    // The first file that does not fit whole: its head, up to its last complete line that fits, then nothing more.
+    const first = sections[kept]!;
+    const restCount = sections.length - kept - 1;
+    const after = restBytes[kept]!;
+    const part = first.code === null ? null : fileHead(first.heading, first.code, max - used, (hidden) => cutLine(restCount, after + hidden));
+    out += part ?? cutLine(restCount + 1, after + first.bytes);
+  }
+  if (byteLength(out) > max) throw new DossierError(`buildDossier: caps.text_max_bytes ${max} cannot hold even the Dashboard block and the cut line`);
+
+  const doc = { schema: DOSSIER_SCHEMA, cover: 0, text: out.replace(/\n+$/, '\n'), images };
+  const bytes = Buffer.from(canonicalJson(doc), 'utf8');
+  if (bytes.length > DOSSIER_MAX_BYTES) throw new DossierError(`buildDossier: the dossier is ${bytes.length} bytes, over the ${DOSSIER_MAX_BYTES} one holds`);
+  return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.length);
 }
 
-export function validateBoardRows(
-  rows: readonly BoardRowInput[],
-  options: BoardBuildOptions = {},
-): ValidationResult {
-  const minRows = options.minRows ?? MIN_BOARD_ROWS;
-  const sortBy = options.sortBy ?? "impliedValue";
-  const required = normalizeWatchlist(options.watchlist);
-  const errors: string[] = [];
-  const warnings: string[] = [];
-
-  const seenSlugs = new Set<string>();
-  let uniqueSlugs = true;
-  let allHaveImpliedValue = rows.length > 0;
-  let allHaveFarmPlan = rows.length > 0;
-  let contiguousRanks = rows.length > 0;
-  let rankingMonotonic = true;
-  let noLiveTokenOrDerivative = true;
-  let prevMetric = Number.POSITIVE_INFINITY;
-
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    const slug = extractSlug(row);
-    if (!slug) {
-      uniqueSlugs = false;
-      errors.push(`Row ${i + 1} is missing a valid slug or name`);
-    } else if (seenSlugs.has(slug)) {
-      uniqueSlugs = false;
-      errors.push(`Duplicate protocol slug detected: ${slug}`);
-    } else {
-      seenSlugs.add(slug);
-    }
-
-    if (row.rank !== undefined && row.rank !== i + 1) {
-      contiguousRanks = false;
-    }
-
-    const implied = extractImpliedValue(row);
-    if (!(implied > 0)) {
-      allHaveImpliedValue = false;
-      errors.push(`Protocol ${slug || `#${i + 1}`} has non-positive implied value`);
-    }
-
-    const low = toFinite(row.impliedFdvLowUsd ?? row.impliedValueLow);
-    const high = toFinite(row.impliedFdvHighUsd ?? row.impliedValueHigh);
-    if (low !== null && high !== null && low > high) {
-      warnings.push(`Protocol ${slug} has inverted valuation bounds (${low} > ${high})`);
-    }
-
-    if (!hasValidFarmPlan(row)) {
-      allHaveFarmPlan = false;
-      errors.push(`Protocol ${slug || `#${i + 1}`} is missing a farm plan`);
-    }
-
-    if (hasDisqualifyingTokenFlag(row)) {
-      noLiveTokenOrDerivative = false;
-      errors.push(`Protocol ${slug || `#${i + 1}`} is flagged as tokenized or derivative`);
-    }
-
-    const metric = sortBy === "score" ? extractScore(row) : implied;
-    if (metric > prevMetric) {
-      rankingMonotonic = false;
-    }
-    prevMetric = metric;
-  }
-
-  const minRowsMet = rows.length >= minRows;
-  if (!minRowsMet) {
-    errors.push(`Board has ${rows.length} rows; minimum required is ${minRows}`);
-  }
-  if (!contiguousRanks) {
-    errors.push("Board ranks are not contiguous 1..N integers");
-  }
-  if (!rankingMonotonic) {
-    errors.push(`Board rows are not monotonically ordered by ${sortBy} descending`);
-  }
-
-  const covered = required.filter((slug) => seenSlugs.has(slug));
-  const missing = required.filter((slug) => !seenSlugs.has(slug));
-  const watchlistComplete = missing.length === 0;
-  if (!watchlistComplete) {
-    errors.push(`Watchlist incomplete; missing: ${missing.join(", ")}`);
-  }
-
-  const watchlist: WatchlistSummary = {
-    complete: watchlistComplete,
-    coverageRatio: required.length === 0 ? 1 : round2(covered.length / required.length),
-    covered,
-    missing,
-    required,
-  };
-
-  const invariants: InvariantReport = {
-    allHaveFarmPlan,
-    allHaveImpliedValue,
-    contiguousRanks,
-    minRowsMet,
-    noLiveTokenOrDerivative,
-    rankingMonotonic,
-    uniqueSlugs,
-    watchlistComplete,
-  };
-
-  return {
-    errors,
-    invariants,
-    valid: errors.length === 0,
-    warnings,
-    watchlist,
-  };
+/** A shown file as the dossier shows it. */
+interface ShownFile {
+  bytes: Uint8Array;
+  text: string;
+  fence: string;
+  /** The language the fence opens with (the file's extension, mjs as js). */
+  lang: string;
+  /** The fenced block: the fence and the language, the text (a last LF added when it lacks one), the fence, a blank line. */
+  block: string;
+  blockBytes: number;
+  lines: number;
 }
 
-export function buildBoard<T extends BoardRowInput>(
-  rows: readonly T[],
-  options: BoardBuildOptions = {},
-): BoardDocument<T> {
-  const ranked = rankBoardRows(rows, options);
-  const validation = validateBoardRows(ranked, options);
-  const categories: Record<string, number> = {};
-  const chains: Record<string, number> = {};
-
-  let totalImplied = 0;
-  let totalTvl = 0;
-  const impliedValues: number[] = [];
-
-  for (const row of ranked) {
-    totalImplied += row.impliedValueUsd;
-    totalTvl += row.tvlUsd;
-    impliedValues.push(row.impliedValueUsd);
-
-    const cat = typeof row.category === "string" && row.category.trim()
-      ? row.category.trim()
-      : "Uncategorized";
-    categories[cat] = (categories[cat] ?? 0) + 1;
-
-    if (Array.isArray(row.chains)) {
-      for (const ch of row.chains) {
-        if (typeof ch === "string" && ch.trim()) {
-          const name = ch.trim();
-          chains[name] = (chains[name] ?? 0) + 1;
-        }
-      }
-    }
+/**
+ * A file's section cut inside its contents: its heading, its first k lines in its fence (closed), a line
+ * naming how many of its lines are not shown, then `tail(hidden)` (the cut line, given the bytes this
+ * file leaves out), k the most lines (at least one, fewer than all) whose whole fits in `room` UTF-8
+ * bytes; null when not one line fits. It cuts only after a line's LF, which is never inside a UTF-8
+ * sequence nor a replacement character's bytes, so no character is split, and a line's shown bytes are
+ * those of its text.
+ */
+function fileHead(heading: string, code: ShownFile, room: number, tail: (hidden: number) => string): string | null {
+  const total = code.lines;
+  const lines = code.text.split('\n');
+  const open = `${code.fence}${code.lang}\n`;
+  const close = `${code.fence}\n\n`;
+  const note = (k: number): string => `[${total - k} of this file's ${total} lines not shown.]\n`;
+  const fixed = byteLength(heading) + byteLength(open) + byteLength(close);
+  let best = 0;
+  let shown = 0;
+  let raw = 0;
+  for (let k = 1; k < total; k++) {
+    shown += byteLength(lines[k - 1]!) + 1;
+    raw = code.bytes.indexOf(0x0a, raw) + 1;
+    if (fixed + shown + byteLength(note(k)) + byteLength(tail(code.bytes.length - raw)) <= room) best = k;
   }
-
-  const sortedImplied = [...impliedValues].sort((a, b) => a - b);
-  const snapshotHash =
-    options.snapshotHash ??
-    sha256Hex(canonicalStringify(ranked.map((r) => [r.slug, r.tvlUsd, r.impliedValueUsd]), 0));
-
-  return canonicalize({
-    generatedAt: options.generatedAt ?? DEFAULT_SNAPSHOT_TIMESTAMP,
-    minRows: options.minRows ?? MIN_BOARD_ROWS,
-    rows: ranked,
-    schemaVersion: BOARD_SCHEMA_VERSION,
-    snapshotHash,
-    summary: {
-      categories,
-      chains,
-      medianImpliedValueUsd: round2(percentile(sortedImplied, 0.5)),
-      topImpliedValueUsd: ranked.length > 0 ? ranked[0].impliedValueUsd : 0,
-      totalImpliedValueUsd: round2(totalImplied),
-      totalTvlUsd: round2(totalTvl),
-    },
-    totalProtocols: ranked.length,
-    watchlist: validation.watchlist,
-  });
+  if (best === 0) return null;
+  let rawEnd = 0;
+  for (let k = 0; k < best; k++) rawEnd = code.bytes.indexOf(0x0a, rawEnd) + 1;
+  const head = lines.slice(0, best).map((l) => `${l}\n`).join('');
+  return `${heading}${open}${head}${close}${note(best)}${tail(code.bytes.length - rawEnd)}`;
 }
-
-export function buildDossier<T extends BoardRowInput>(
-  board: BoardDocument<T>,
-  validation: ValidationResult,
-  options: BoardBuildOptions = {},
-): DossierDocument {
-  const boardSha256 = sha256Hex(canonicalStringify(board));
-  const impliedAsc = board.rows.map((r) => r.impliedValueUsd).sort((a, b) => a - b);
-  const catMap = new Map<string, { count: number; implied: number; tvl: number }>();
-  const chainMap = new Map<string, { count: number; tvl: number }>();
-
-  for (const row of board.rows) {
-    const cat = typeof row.category === "string" && row.category.trim()
-      ? row.category.trim()
-      : "Uncategorized";
-    const cEntry = catMap.get(cat) ?? { count: 0, implied: 0, tvl: 0 };
-    cEntry.count += 1;
-    cEntry.implied += row.impliedValueUsd;
-    cEntry.tvl += row.tvlUsd;
-    catMap.set(cat, cEntry);
-
-    if (Array.isArray(row.chains)) {
-      for (const ch of row.chains) {
-        if (typeof ch === "string" && ch.trim()) {
-          const name = ch.trim();
-          const chEntry = chainMap.get(name) ?? { count: 0, tvl: 0 };
-          chEntry.count += 1;
-          chEntry.tvl += row.tvlUsd;
-          chainMap.set(name, chEntry);
-        }
-      }
-    }
-  }
-
-  const byCategory = [...catMap.entries()]
-    .map(([category, v]) => ({
-      category,
-      count: v.count,
-      totalImpliedValueUsd: round2(v.implied),
-      totalTvlUsd: round2(v.tvl),
-    }))
-    .sort((a, b) => b.totalImpliedValueUsd - a.totalImpliedValueUsd || cmpStr(a.category, b.category));
-
-  const byChain = [...chainMap.entries()]
-    .map(([chain, v]) => ({
-      chain,
-      count: v.count,
-      totalTvlUsd: round2(v.tvl),
-    }))
-    .sort((a, b) => b.totalTvlUsd - a.totalTvlUsd || cmpStr(a.chain, b.chain));
-
-  const watchSet = new Set(validation.watchlist.required);
-  const watchlistItems = board.rows
-    .filter((r) => (watchSet.size > 0 ? watchSet.has(r.slug) : r.watchlist))
-    .map((r) => ({
-      farmStepCount: extractFarmSteps(r).length,
-      impliedValueUsd: r.impliedValueUsd,
-      name: r.name,
-      rank: r.rank,
-      slug: r.slug,
-      tvlUsd: r.tvlUsd,
-    }));
-
-  const topProtocols = board.rows.slice(0, 25).map((r) => ({
-    category: typeof r.category === "string" && r.category.trim() ? r.category.trim() : "Uncategorized",
-    farmStepCount: extractFarmSteps(r).length,
-    impliedValueUsd: r.impliedValueUsd,
-    name: r.name,
-    rank: r.rank,
-    slug: r.slug,
-    tvlUsd: r.tvlUsd,
-    watchlist: r.watchlist,
-  }));
-
-  const totalImplied = board.summary.totalImpliedValueUsd;
-  const count = board.rows.length;
-
-  return canonicalize({
-    artifacts: options.artifacts ? [...options.artifacts] : [],
-    boardSchemaVersion: board.schemaVersion,
-    boardSha256,
-    distribution: {
-      byCategory,
-      byChain,
-      maxImpliedValueUsd: impliedAsc.length > 0 ? impliedAsc[impliedAsc.length - 1] : 0,
-      meanImpliedValueUsd: count > 0 ? round2(totalImplied / count) : 0,
-      medianImpliedValueUsd: round2(percentile(impliedAsc, 0.5)),
-      minImpliedValueUsd: impliedAsc.length > 0 ? impliedAsc[0] : 0,
-      p10ImpliedValueUsd: round2(percentile(impliedAsc, 0.1)),
-      p90ImpliedValueUsd: round2(percentile(impliedAsc, 0.9)),
-      totalImpliedValueUsd: totalImplied,
-      totalTvlUsd: board.summary.totalTvlUsd,
-    },
-    errors: validation.errors,
-    generatedAt: board.generatedAt,
-    invariants: validation.invariants,
-    methodology: options.methodology ?? {},
-    rowCount: count,
-    schemaVersion: DOSSIER_SCHEMA_VERSION,
-    topProtocols,
-    valid: validation.valid,
-    warnings: validation.warnings,
-    watchlist: {
-      complete: validation.watchlist.complete,
-      coverageRatio: validation.watchlist.coverageRatio,
-      covered: validation.watchlist.covered.length,
-      items: watchlistItems,
-      missing: validation.watchlist.missing,
-      total: validation.watchlist.required.length,
-    },
-  });
-}
-
-export function buildBoardAndDossier<T extends BoardRowInput>(
-  rows: readonly T[],
-  options: BoardBuildOptions = {},
-): BoardArtifactsResult<T> {
-  const board = buildBoard(rows, options);
-  const validation = validateBoardRows(board.rows, options);
-  if (options.strict && !validation.valid) {
-    throw new Error(`Board validation failed:\n- ${validation.errors.join("\n- ")}`);
-  }
-  const boardJson = canonicalStringify(board);
-  const boardSha256 = sha256Hex(boardJson);
-  const dossier = buildDossier(board, validation, options);
-  const dossierJson = canonicalStringify(dossier);
-  const dossierSha256 = sha256Hex(dossierJson);
-  return {
-    board,
-    boardJson,
-    boardSha256,
-    dossier,
-    dossierJson,
-    dossierSha256,
-    validation,
-  };
-}
-
-export function writeBoardArtifacts<T extends BoardRowInput>(
-  outputDir: string,
-  rows: readonly T[],
-  options: BoardBuildOptions = {},
-): BoardArtifactsResult<T> {
-  const result = buildBoardAndDossier(rows, options);
-  mkdirSync(outputDir, { recursive: true });
-  writeFileSync(join(outputDir, "board.json"), result.boardJson, "utf8");
-  writeFileSync(join(outputDir, "dossier.json"), result.dossierJson, "utf8");
-  return result;
-}
-
-export default {
-  BOARD_SCHEMA_VERSION,
-  DEFAULT_SNAPSHOT_TIMESTAMP,
-  DOSSIER_SCHEMA_VERSION,
-  MIN_BOARD_ROWS,
-  buildBoard,
-  buildBoardAndDossier,
-  buildDossier,
-  canonicalStringify,
-  canonicalize,
-  normalizeSlug,
-  rankBoardRows,
-  sha256Hex,
-  validateBoardRows,
-  writeBoardArtifacts,
-};
